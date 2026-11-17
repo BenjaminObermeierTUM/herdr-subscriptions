@@ -56,6 +56,8 @@ def stop():
     (root / "stop").touch(mode=0o600)
     # The worker notices within two seconds. Token TTL also handles crashes.
     herdr.clear()
+    from . import native
+    native.clear()
 
 
 def request_refresh():
@@ -112,5 +114,7 @@ def worker():
             executor.shutdown(wait=True)
             try:
                 herdr.clear()
+                from . import native
+                native.clear()
             except Exception:
                 pass

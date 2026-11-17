@@ -70,9 +70,43 @@ def settings():
         raise ValueError("refresh_seconds must be between 30 and 3600")
     if not isinstance(stale, int) or stale < refresh:
         raise ValueError("stale_seconds must be at least refresh_seconds")
-    return {"providers": providers, "refresh_seconds": refresh, "stale_seconds": stale}
+    mode = value.get("sidebar_mode", "agents")
+    if mode not in ("agents", "section"):
+        raise ValueError("sidebar_mode must be agents or section")
+    return {"providers": providers, "refresh_seconds": refresh, "stale_seconds": stale, "sidebar_mode": mode}
 
 
 def cached():
     value = read_json(state_dir() / "usage.json", {"schema": 1, "subscriptions": []})
     return value if isinstance(value, dict) and isinstance(value.get("subscriptions"), list) else {"schema": 1, "subscriptions": []}
+
+
+def claude_resets(now=None):
+    """Optional, explicitly last-checked Usage-page snapshot; never infer zero."""
+    import time
+    from .providers import timestamp, text
+    now = time.time() if now is None else now
+    record = read_json(config_dir() / "claude-resets.json", {})
+    if not isinstance(record, dict):
+        return None
+    count = record.get("available")
+    checked = timestamp(record.get("checked_at"))
+    if not isinstance(count, int) or isinstance(count, bool) or not 0 <= count <= 100 or checked is None:
+        return None
+    items = []
+    expired = 0
+    raw_items = record.get("items", [])
+    if not isinstance(raw_items, list):
+        return None
+    for item in raw_items[:count]:
+        if not isinstance(item, dict):
+            continue
+        expiration = timestamp(item.get("expires_at"))
+        if expiration is None:
+            continue
+        if expiration <= now:
+            expired += 1
+        else:
+            items.append({"label": text(item.get("label") or "Saved reset", 32), "expires_at": expiration})
+    return {"available": max(0, count - expired), "source": "usage-page", "checked_at": checked,
+            "items": items, "expires_at": sorted(i["expires_at"] for i in items)}

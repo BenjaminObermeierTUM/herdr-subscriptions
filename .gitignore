@@ -8,6 +8,10 @@ dist/
 .DS_Store
 # Runtime data and credentials never belong in this repository.
 usage.json
+claude-resets.json
 config.json
 *.log
 .env*
+
+.local/
+native/bin/

@@ -1,0 +1,534 @@
+diff --git a/src/client/mod.rs b/src/client/mod.rs
+index f55db19..dc17a72 100644
+--- a/src/client/mod.rs
++++ b/src/client/mod.rs
+@@ -2325,6 +2325,7 @@ async fn run_client_loop(
+                         outcome.repaint |= notification_repaint
+                             | shell.tick_copy_feedback(now)
+                             | shell.tick_workspace_highlight(now)
++                            | shell.tick_subscription_section(now)
+                             | shell.tick_endpoint_error(now);
+                         let frame = outcome
+                             .repaint
+diff --git a/src/client/shell.rs b/src/client/shell.rs
+index 2d18044..8f0dd99 100644
+--- a/src/client/shell.rs
++++ b/src/client/shell.rs
+@@ -32,6 +32,7 @@ mod render;
+ mod scroll;
+ mod settings;
+ mod state;
++mod subscription_section;
+ mod surface_patch;
+ mod text_editor;
+ mod word_selection;
+diff --git a/src/client/shell/composition.rs b/src/client/shell/composition.rs
+index b7ab4a9..359f80c 100644
+--- a/src/client/shell/composition.rs
++++ b/src/client/shell/composition.rs
+@@ -55,6 +55,8 @@ impl ClientShellState {
+                     == Some(ClientEndpointStatus::Online)
+         });
+         let mut render_state = render::ShellRenderState {
++            subscription_section: &self.subscription_section,
++            subscription_scroll: self.subscription_scroll,
+             machine_diagnostics: &self.machine_diagnostics,
+             endpoints: &self.endpoints,
+             active_endpoint_id: &self.active_endpoint_id,
+@@ -211,6 +213,8 @@ impl ClientShellState {
+             snapshot,
+             &self.config,
+             render::ShellRenderState {
++                subscription_section: &self.subscription_section,
++                subscription_scroll: self.subscription_scroll,
+                 machine_diagnostics: &self.machine_diagnostics,
+                 endpoints: &self.endpoints,
+                 active_endpoint_id: &self.active_endpoint_id,
+diff --git a/src/client/shell/endpoint_sidebar.rs b/src/client/shell/endpoint_sidebar.rs
+index 9698248..bc8716d 100644
+--- a/src/client/shell/endpoint_sidebar.rs
++++ b/src/client/shell/endpoint_sidebar.rs
+@@ -249,6 +249,8 @@ pub(super) fn render_expanded(
+     } else {
+         Rect::new(area.right().saturating_sub(1), area.y, 1, area.height)
+     };
++    let full_area = area;
++    let (area, subscription_area) = state.subscription_section.areas(area);
+     let (workspace_area, detail_area) =
+         crate::ui::expanded_sidebar_sections(area, state.sidebar_section_split);
+     hits.sidebar_section_divider =
+@@ -563,11 +565,18 @@ pub(super) fn render_expanded(
+         state.agent_scroll,
+         hits,
+     );
++    hits.subscription_area = subscription_area;
++    hits.subscription_max_scroll = state.subscription_section.render(
++        buffer,
++        subscription_area,
++        palette,
++        state.subscription_scroll,
++    );
+     hits.sidebar_toggle = Rect::new(
+-        area.right().saturating_sub(2),
+-        area.bottom().saturating_sub(1),
+-        u16::from(area.width > 1),
+-        u16::from(area.height > 0),
++        full_area.right().saturating_sub(2),
++        full_area.bottom().saturating_sub(1),
++        u16::from(full_area.width > 1),
++        u16::from(full_area.height > 0),
+     );
+     put_text(
+         buffer,
+diff --git a/src/client/shell/mouse.rs b/src/client/shell/mouse.rs
+index 8e873d6..498d3fd 100644
+--- a/src/client/shell/mouse.rs
++++ b/src/client/shell/mouse.rs
+@@ -1895,6 +1895,17 @@ impl ClientShellState {
+                     outcome,
+                 );
+             }
++            MouseEventKind::ScrollUp if super::contains(self.hits.subscription_area, point) => {
++                self.subscription_scroll = self.subscription_scroll.saturating_sub(3);
++                outcome.repaint = true;
++            }
++            MouseEventKind::ScrollDown if super::contains(self.hits.subscription_area, point) => {
++                self.subscription_scroll = self
++                    .subscription_scroll
++                    .saturating_add(3)
++                    .min(self.hits.subscription_max_scroll);
++                outcome.repaint = true;
++            }
+             MouseEventKind::ScrollUp if super::contains(self.hits.agent_body, point) => {
+                 let next = self.agent_scroll.saturating_sub(1);
+                 if next != self.agent_scroll {
+diff --git a/src/client/shell/render.rs b/src/client/shell/render.rs
+index 248216c..4968803 100644
+--- a/src/client/shell/render.rs
++++ b/src/client/shell/render.rs
+@@ -230,6 +230,8 @@ pub(super) fn render_mode_bar(
+ }
+ 
+ pub(super) struct ShellRenderState<'a> {
++    pub(super) subscription_section: &'a super::subscription_section::SubscriptionSection,
++    pub(super) subscription_scroll: usize,
+     pub(super) machine_diagnostics: &'a super::machine_diagnostics::MachineDiagnostics,
+     pub(super) endpoints: &'a [ClientShellEndpoint],
+     pub(super) active_endpoint_id: &'a ClientEndpointId,
+diff --git a/src/client/shell/sidebar.rs b/src/client/shell/sidebar.rs
+index 46c3a1a..1396e64 100644
+--- a/src/client/shell/sidebar.rs
++++ b/src/client/shell/sidebar.rs
+@@ -211,6 +211,8 @@ pub(crate) fn render_sidebar(
+     } else {
+         Rect::new(area.right().saturating_sub(1), area.y, 1, area.height)
+     };
++    let full_area = area;
++    let (area, subscription_area) = state.subscription_section.areas(area);
+     let (workspace_area, detail_area) =
+         crate::ui::expanded_sidebar_sections(area, state.sidebar_section_split);
+     hits.sidebar_section_divider =
+@@ -439,11 +441,18 @@ pub(crate) fn render_sidebar(
+         hits,
+     );
+ 
++    hits.subscription_area = subscription_area;
++    hits.subscription_max_scroll = state.subscription_section.render(
++        buffer,
++        subscription_area,
++        palette,
++        state.subscription_scroll,
++    );
+     hits.sidebar_toggle = Rect::new(
+-        area.right().saturating_sub(2),
+-        area.bottom().saturating_sub(1),
+-        u16::from(area.width > 1),
+-        u16::from(area.height > 0),
++        full_area.right().saturating_sub(2),
++        full_area.bottom().saturating_sub(1),
++        u16::from(full_area.width > 1),
++        u16::from(full_area.height > 0),
+     );
+     put_text(
+         buffer,
+diff --git a/src/client/shell/state.rs b/src/client/shell/state.rs
+index 5a73292..9619709 100644
+--- a/src/client/shell/state.rs
++++ b/src/client/shell/state.rs
+@@ -83,6 +83,8 @@ pub(super) enum ClientMobileTarget {
+ 
+ #[derive(Default)]
+ pub(super) struct ShellHitMap {
++    pub(super) subscription_area: Rect,
++    pub(super) subscription_max_scroll: usize,
+     pub(super) machines: Vec<MachineHit>,
+     pub(super) workspaces: Vec<WorkspaceHit>,
+     pub(super) workspace_body: Rect,
+@@ -857,6 +859,8 @@ pub(super) struct ClientCopyModeState {
+ }
+ 
+ pub(crate) struct ClientShellState {
++    pub(super) subscription_section: super::subscription_section::SubscriptionSection,
++    pub(super) subscription_scroll: usize,
+     pub(super) machine_diagnostics: super::machine_diagnostics::MachineDiagnostics,
+     pub(super) config: ClientShellConfig,
+     pub(super) snapshot: Option<Box<ClientShellSnapshot>>,
+@@ -1029,7 +1033,11 @@ impl ClientShellState {
+                 .or_default()
+                 .extend(saved.collapsed_groups);
+         }
++        let mut subscription_section = super::subscription_section::SubscriptionSection::from_env();
++        subscription_section.poll(std::time::Instant::now());
+         Self {
++            subscription_section,
++            subscription_scroll: 0,
+             machine_diagnostics: Default::default(),
+             config,
+             snapshot: None,
+diff --git a/src/client/shell/subscription_section.rs b/src/client/shell/subscription_section.rs
+new file mode 100644
+index 0000000..c66670c
+--- /dev/null
++++ b/src/client/shell/subscription_section.rs
+@@ -0,0 +1,341 @@
++//! Optional, client-owned sidebar section fed by a local plugin JSON file.
++//! The server protocol and agent/workspace metadata are deliberately unchanged.
++use std::path::PathBuf;
++use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
++
++use ratatui::{
++    buffer::Buffer,
++    layout::Rect,
++    style::{Modifier, Style},
++};
++use serde::Deserialize;
++
++use crate::app::state::Palette;
++
++const MAX_BYTES: u64 = 64 * 1024;
++const MAX_ROWS: usize = 64;
++
++#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
++#[serde(default, deny_unknown_fields)]
++struct Row {
++    text: String,
++    kind: String,
++}
++
++#[derive(Clone, Debug, PartialEq, Deserialize)]
++#[serde(deny_unknown_fields)]
++struct Document {
++    schema: u32,
++    title: String,
++    valid_until: f64,
++    rows: Vec<Row>,
++}
++
++#[derive(Default)]
++pub(super) struct SubscriptionSection {
++    path: Option<PathBuf>,
++    last_poll: Option<Instant>,
++    modified: Option<SystemTime>,
++    document: Option<Document>,
++    stale: bool,
++}
++
++impl SubscriptionSection {
++    pub(super) fn from_env() -> Self {
++        Self {
++            path: std::env::var_os("HERDR_SUBSCRIPTIONS_FILE").map(PathBuf::from),
++            ..Self::default()
++        }
++    }
++
++    /// Called once per client tick, throttled to one filesystem read per second.
++    /// No file IO occurs in render, and polling does not scale with pane count.
++    pub(super) fn poll(&mut self, now: Instant) -> bool {
++        let Some(path) = self.path.as_ref() else {
++            return false;
++        };
++        if self
++            .last_poll
++            .is_some_and(|last| now.saturating_duration_since(last) < Duration::from_secs(1))
++        {
++            return false;
++        }
++        self.last_poll = Some(now);
++        let epoch = SystemTime::now()
++            .duration_since(UNIX_EPOCH)
++            .map_or(0.0, |d| d.as_secs_f64());
++        let old_stale = self.stale;
++        let metadata = std::fs::metadata(path).ok();
++        let modified = metadata.as_ref().and_then(|m| m.modified().ok());
++        if metadata
++            .as_ref()
++            .is_none_or(|m| !m.is_file() || m.len() > MAX_BYTES)
++        {
++            self.stale = true;
++            return self.stale != old_stale;
++        }
++        let mut changed = false;
++        if self.document.is_none() || modified != self.modified {
++            let next = std::fs::read(path)
++                .ok()
++                .and_then(|bytes| {
++                    if bytes.len() as u64 > MAX_BYTES {
++                        return None;
++                    }
++                    serde_json::from_slice::<Document>(&bytes).ok()
++                })
++                .filter(|doc| {
++                    doc.schema == 1 && doc.rows.len() <= MAX_ROWS && doc.valid_until.is_finite()
++                });
++            if let Some(mut next) = next {
++                next.title = clean(&next.title, 64);
++                for row in &mut next.rows {
++                    row.text = clean(&row.text, 160);
++                }
++                changed = self.document.as_ref() != Some(&next);
++                self.document = Some(next);
++                self.modified = modified;
++            } else {
++                self.stale = true;
++                return old_stale != self.stale;
++            }
++        }
++        self.stale = self
++            .document
++            .as_ref()
++            .is_some_and(|d| d.valid_until < epoch);
++        changed || self.stale != old_stale
++    }
++
++    pub(super) fn areas(&self, area: Rect) -> (Rect, Rect) {
++        let Some(document) = self.document.as_ref() else {
++            return (area, Rect::default());
++        };
++        let height = (document.rows.len().saturating_add(2).min(u16::MAX as usize) as u16)
++            .min(area.height.saturating_sub(8));
++        if height < 3 || area.width < 4 {
++            return (area, Rect::default());
++        }
++        (
++            Rect::new(area.x, area.y, area.width, area.height - height),
++            Rect::new(area.x, area.bottom() - height, area.width, height),
++        )
++    }
++
++    pub(super) fn render(
++        &self,
++        buffer: &mut Buffer,
++        area: Rect,
++        palette: &Palette,
++        scroll: usize,
++    ) -> usize {
++        let Some(document) = self.document.as_ref() else {
++            return 0;
++        };
++        if area.is_empty() {
++            return 0;
++        }
++        let width = area.width.saturating_sub(2);
++        let put = |buffer: &mut Buffer, y: u16, value: &str, style: Style| {
++            super::render::put_text(buffer, area.x + 1, y, width, value, style);
++        };
++        put(
++            buffer,
++            area.y,
++            &"─".repeat(usize::from(width)),
++            Style::default().fg(palette.overlay0),
++        );
++        let title = if self.stale {
++            format!("{} · stale", document.title)
++        } else {
++            document.title.clone()
++        };
++        put(
++            buffer,
++            area.y + 1,
++            &title,
++            Style::default()
++                .fg(palette.accent)
++                .add_modifier(Modifier::BOLD),
++        );
++        let height = usize::from(area.height.saturating_sub(2));
++        let max_scroll = document.rows.len().saturating_sub(height);
++        for (index, row) in document
++            .rows
++            .iter()
++            .skip(scroll.min(max_scroll))
++            .take(height)
++            .enumerate()
++        {
++            let mut style = match row.kind.as_str() {
++                "codex" => Style::default()
++                    .fg(palette.green)
++                    .add_modifier(Modifier::BOLD),
++                "claude" => Style::default()
++                    .fg(palette.mauve)
++                    .add_modifier(Modifier::BOLD),
++                "critical" => Style::default()
++                    .fg(palette.red)
++                    .add_modifier(Modifier::BOLD),
++                "warning" => Style::default().fg(palette.yellow),
++                "dim" => Style::default().fg(palette.overlay0),
++                _ => Style::default().fg(palette.text),
++            };
++            if self.stale {
++                style = style.add_modifier(Modifier::DIM);
++            }
++            put(buffer, area.y + 2 + index as u16, &row.text, style);
++        }
++        max_scroll
++    }
++}
++
++fn clean(value: &str, max: usize) -> String {
++    value
++        .chars()
++        .filter(|c| !c.is_control())
++        .take(max)
++        .collect()
++}
++
++impl super::ClientShellState {
++    pub(crate) fn tick_subscription_section(&mut self, now: Instant) -> bool {
++        self.subscription_section.poll(now)
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn section(rows: usize) -> SubscriptionSection {
++        SubscriptionSection {
++            document: Some(Document {
++                schema: 1,
++                title: "Subscriptions (2)".into(),
++                valid_until: f64::MAX,
++                rows: (0..rows)
++                    .map(|i| Row {
++                        text: format!("row {i}"),
++                        kind: "text".into(),
++                    })
++                    .collect(),
++            }),
++            ..SubscriptionSection::default()
++        }
++    }
++
++    #[test]
++    fn own_section_reserves_bottom_without_becoming_an_agent_row() {
++        let section = section(12);
++        let (native, footer) = section.areas(Rect::new(0, 0, 30, 60));
++        assert_eq!(native, Rect::new(0, 0, 30, 46));
++        assert_eq!(footer, Rect::new(0, 46, 30, 14));
++        assert_eq!(native.bottom(), footer.y);
++        assert_eq!(footer.bottom(), 60);
++    }
++
++    #[test]
++    fn short_window_keeps_native_sidebar_usable_and_footer_scrollable() {
++        let (native, footer) = section(40).areas(Rect::new(0, 0, 26, 20));
++        assert_eq!(native.height, 8);
++        assert_eq!(footer.height, 12);
++    }
++
++    #[test]
++    fn disabled_extension_preserves_original_geometry() {
++        let area = Rect::new(0, 0, 26, 40);
++        assert_eq!(
++            SubscriptionSection::default().areas(area),
++            (area, Rect::default())
++        );
++    }
++
++    #[test]
++    fn section_renders_without_any_agent_or_workspace_dependency() {
++        let section = section(3);
++        let area = Rect::new(0, 0, 30, 8);
++        let mut buffer = Buffer::empty(area);
++        let config =
++            crate::client::shell::ClientShellConfig::from_config(&crate::config::Config::default());
++        assert_eq!(section.render(&mut buffer, area, &config.palette, 0), 0);
++        let text = buffer
++            .content
++            .iter()
++            .map(|c| c.symbol())
++            .collect::<String>();
++        assert!(text.contains("Subscriptions (2)"));
++        assert!(text.contains("row 0"));
++    }
++
++    #[test]
++    fn controls_and_newlines_cannot_escape_the_section() {
++        assert_eq!(clean("abc\n\r\u{1b}[31mxyz", 6), "abc[31");
++    }
++
++    #[test]
++    fn standalone_section_is_present_when_no_agent_exists() {
++        let mut config =
++            crate::client::shell::ClientShellConfig::from_config(&crate::config::Config::default());
++        config.startup_onboarding = false;
++        let mut shell = crate::client::shell::ClientShellState::new(config);
++        shell.subscription_section = section(12);
++        let frame = shell.compose(100, 60).expect("client frame");
++        let text = frame
++            .cells
++            .iter()
++            .map(|cell| cell.symbol.as_str())
++            .collect::<String>();
++        assert!(text.contains("Subscriptions (2)"));
++        assert!(shell.hits.subscription_area.y >= shell.hits.agent_body.bottom());
++        assert!(shell.hits.agents.is_empty());
++    }
++
++    #[test]
++    fn malformed_data_preserves_last_good_section_with_stale_marker() {
++        let path = std::env::temp_dir().join(format!(
++            "herdr-section-{}-{}.json",
++            std::process::id(),
++            SystemTime::now()
++                .duration_since(UNIX_EPOCH)
++                .expect("clock")
++                .as_nanos()
++        ));
++        std::fs::write(&path, r#"{"schema":1,"title":"Subscriptions","valid_until":9999999999,"rows":[{"text":"Codex Pro","kind":"codex"}]}"#).expect("fixture");
++        let now = Instant::now();
++        let mut reader = SubscriptionSection {
++            path: Some(path.clone()),
++            ..SubscriptionSection::default()
++        };
++        assert!(reader.poll(now));
++        assert!(!reader.stale);
++        std::fs::write(&path, "invalid json").expect("bad fixture");
++        assert!(reader.poll(now + Duration::from_secs(2)));
++        assert!(reader.stale);
++        assert_eq!(
++            reader.document.as_ref().expect("last good document").rows[0].text,
++            "Codex Pro"
++        );
++        std::fs::remove_file(path).expect("cleanup");
++    }
++
++    #[test]
++    fn oversized_payload_does_not_allocate_a_section() {
++        let path = std::env::temp_dir().join(format!(
++            "herdr-section-large-{}-{}.json",
++            std::process::id(),
++            SystemTime::now()
++                .duration_since(UNIX_EPOCH)
++                .expect("clock")
++                .as_nanos()
++        ));
++        std::fs::write(&path, vec![b' '; MAX_BYTES as usize + 1]).expect("large fixture");
++        let mut reader = SubscriptionSection {
++            path: Some(path.clone()),
++            ..SubscriptionSection::default()
++        };
++        reader.poll(Instant::now());
++        assert!(reader.document.is_none());
++        std::fs::remove_file(path).expect("cleanup");
++    }
++}

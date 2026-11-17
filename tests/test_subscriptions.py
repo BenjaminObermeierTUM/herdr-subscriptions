@@ -9,7 +9,7 @@ import unittest
 from datetime import datetime
 from unittest.mock import patch
 
-from herdr_subscriptions import collector, daemon, herdr, providers, render, setup, storage
+from herdr_subscriptions import collector, daemon, herdr, native, providers, render, setup, storage
 from herdr_subscriptions.cli import demo
 
 
@@ -42,7 +42,7 @@ class ProviderTests(unittest.TestCase):
                       "limit": {"amount_minor": 1000, "currency": "EUR", "exponent": 2}},
             "extra_usage": {"spend_limit_reached": False}}}
         result = providers.normalize_claude(raw)
-        self.assertEqual([m["label"] for m in result["limits"]], ["5h", "Weekly", "Fable", "Extra"])
+        self.assertEqual([m["label"] for m in result["limits"]], ["5h", "Weekly", "Fable", "Credits"])
         self.assertEqual(result["limits"][0]["used_percent"], 100)
         self.assertEqual(result["limits"][-1]["money_used"]["amount"], "12.65")
         self.assertIsNone(result["limits"][-1]["resets_at"])
@@ -86,7 +86,7 @@ class ProviderTests(unittest.TestCase):
         replies[:] = [{"type": "control_response", "response": {"request_id": "subscriptions-init", "subtype": "success", "response": {}}},
                       {"type": "control_response", "response": {"request_id": "subscriptions-usage", "subtype": "success", "response": {
                           "rate_limits": {"five_hour": {"utilization": 10}}}}}]
-        with patch.object(providers, "JsonProcess", FakeProcess), patch.object(providers.shutil, "which", return_value="claude"):
+        with patch.object(providers, "JsonProcess", FakeProcess), patch.object(providers.shutil, "which", return_value="claude"), patch.object(storage, "claude_resets", return_value=None):
             providers.fetch_claude()
         requests = [c["request"]["subtype"] for c in calls if isinstance(c, dict)]
         self.assertEqual(requests, ["initialize", "get_usage"])
@@ -133,6 +133,18 @@ class CacheTests(unittest.TestCase):
             collector.refresh(force=True)
         self.assertNotIn("PRIVATE_TOKEN", (storage.state_dir() / "usage.json").read_text())
 
+    def test_claude_reset_snapshot_retains_check_time_and_removes_expired_offers(self):
+        storage.write_json(storage.config_dir() / "claude-resets.json", {
+            "available": 2, "checked_at": 100,
+            "items": [{"label": "Full reset", "expires_at": 110}, {"label": "Model reset", "expires_at": 210}]})
+        value = storage.claude_resets(now=150)
+        self.assertEqual(value["available"], 1)
+        self.assertEqual(value["checked_at"], 100)
+        self.assertEqual(value["source"], "usage-page")
+        self.assertEqual(value["expires_at"], [210])
+        storage.write_json(storage.config_dir() / "claude-resets.json", {"available": True, "checked_at": 100})
+        self.assertIsNone(storage.claude_resets(now=150))
+
     def test_fresh_cache_skips_network(self):
         with patch.dict(providers.FETCHERS, {"codex": lambda: {"provider": "codex", "limits": []}, "claude": lambda: {"provider": "claude", "limits": []}}):
             collector.refresh(force=True)
@@ -145,9 +157,11 @@ class RenderTests(unittest.TestCase):
         rows = render.sidebar_rows(demo(), time.time())
         self.assertEqual(len(rows), 14)
         self.assertEqual(rows[0], render.GAP)
-        self.assertEqual(rows[1], "Subscriptions")
+        self.assertEqual(rows[1], "Subscriptions (2)")
+        self.assertEqual(rows.count(render.GAP), 2)
+        self.assertEqual(sum(row.startswith("└ ") for row in rows), 1)
         self.assertIn("Codex Pro", rows)
-        self.assertIn("Claude Team", rows)
+        self.assertTrue(any(row.startswith("Claude Team") for row in rows))
         self.assertTrue(all(render.width(row) <= 23 for row in rows))
         for expected in ("Codex", "Claude", "Weekly", "Fable", "€", "left", "resets"):
             self.assertTrue(any(expected in r for r in rows), expected)
@@ -188,12 +202,34 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(render.extra_budget_left(limit), {"amount": "0", "currency": "EUR"})
         sub = {"provider": "claude", "label": "Claude", "fetched_at": 100, "limits": [limit]}
         rows = render.subscription_rows(sub, 101, compact=True)
-        self.assertIn("€0/€10 left", rows[1])
-        self.assertIn("██████", rows[1])
+        self.assertIn("Credits €0 left", rows[1])
+        self.assertIn("Monthly reset: ?", rows[2])
         limit["money_used"]["amount"] = "4"
         self.assertEqual(render.extra_budget_left(limit)["amount"], "6")
         limit["money_used"]["currency"] = "USD"
         self.assertIsNone(render.extra_budget_left(limit))
+
+
+class NativeSectionTests(unittest.TestCase):
+    def test_section_is_independent_of_any_workspace_or_agent(self):
+        with patch.object(storage, "settings", return_value={"stale_seconds": 900}):
+            document = native.section_document(demo(), time.time())
+        self.assertEqual(document["schema"], 1)
+        self.assertEqual(document["title"], "Subscriptions (2)")
+        self.assertTrue(any(r["kind"] == "codex" for r in document["rows"]))
+        self.assertTrue(any(r["kind"] == "claude" for r in document["rows"]))
+        self.assertTrue(any(r["text"] == "" for r in document["rows"]))
+        self.assertTrue(any("Credits" in r["text"] and "left" in r["text"] for r in document["rows"]))
+        self.assertNotIn("pane_id", json.dumps(document))
+        self.assertNotIn("workspace_id", json.dumps(document))
+
+    def test_native_setup_contains_shortcut_but_no_agent_row_override(self):
+        value = setup.proposed('onboarding = false\n[ui]\n', section=True)
+        self.assertNotIn("ui.sidebar.agents", value)
+        self.assertNotIn("$subscriptions_", value)
+        self.assertIn("subscriptions.open", value)
+        custom = '[ui.sidebar.agents]\nrows = [["agent"]]\n'
+        self.assertTrue(setup.proposed(custom, section=True).startswith(custom.rstrip()))
 
 
 class IntegrationTests(unittest.TestCase):

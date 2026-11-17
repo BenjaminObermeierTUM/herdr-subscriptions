@@ -22,9 +22,11 @@ def demo():
          "limits": [{"key": "codex.primary", "label": "Weekly", "used_percent": 72, "resets_at": now + 172800}],
          "credits": {"balance": "1250", "available": True}, "resets": {"available": 2}},
         {"provider": "claude", "label": "Claude", "plan": "team", "fetched_at": now,
+         "resets": {"available": 1, "source": "usage-page", "checked_at": now,
+                    "items": [{"label": "Full reset", "expires_at": now + 604800}], "expires_at": [now + 604800]},
          "limits": [{"key": "session", "label": "5h", "used_percent": 85, "resets_at": now + 5400},
-                    {"key": "weekly", "label": "Weekly", "used_percent": 32, "resets_at": now + 86400},
-                    {"key": "fable", "label": "Fable", "used_percent": 53, "resets_at": now + 86400},
+                    {"key": "weekly", "label": "Weekly", "window_minutes": 10080, "used_percent": 32, "resets_at": now + 86400},
+                    {"key": "fable", "label": "Fable", "window_minutes": 10080, "used_percent": 53, "resets_at": now + 86400},
                     {"key": "extra", "label": "Extra", "used_percent": 25, "period": "monthly", "enabled": True,
                      "money_used": {"amount": "5", "currency": "EUR"}, "money_limit": {"amount": "20", "currency": "EUR"}}]}
     ]}
@@ -70,14 +72,17 @@ def panel(use_demo=False):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Read-only subscription quotas for Herdr")
-    parser.add_argument("command", choices=["status", "refresh", "start", "stop", "worker", "publish", "request-refresh", "panel", "open", "setup", "unsetup", "diagnostics"], nargs="?", default="status")
+    parser.add_argument("command", choices=["status", "refresh", "start", "stop", "worker", "publish", "request-refresh", "panel", "open", "setup", "unsetup", "diagnostics", "section-path"], nargs="?", default="status")
     parser.add_argument("--json", action="store_true", help="print normalized metadata only")
     parser.add_argument("--demo", action="store_true", help="use synthetic data; never reads accounts")
     parser.add_argument("--sidebar", action="store_true", help="preview compact sidebar rows")
+    parser.add_argument("--section", action="store_true", help="use the independent section in the custom Herdr client")
     parser.add_argument("--apply", action="store_true", help="apply the previewed sidebar config, backing it up first")
     args = parser.parse_args(argv)
     try:
-        if args.command in ("status", "refresh"):
+        if args.command == "section-path":
+            print(storage.state_dir() / "section.json")
+        elif args.command in ("status", "refresh"):
             snapshot = demo() if args.demo else collector.refresh(force=True) if args.command == "refresh" else storage.cached()
             if args.json:
                 print(json.dumps(snapshot, indent=2, ensure_ascii=False))
@@ -89,16 +94,27 @@ def main(argv=None):
         elif args.command in ("setup", "unsetup"):
             from . import setup
             if args.apply:
-                backup = setup.apply(remove=args.command == "unsetup")
+                if args.command == "setup":
+                    daemon.stop()
+                    deadline = time.monotonic() + 35
+                    while daemon.running() and time.monotonic() < deadline:
+                        time.sleep(0.1)
+                    if daemon.running():
+                        raise RuntimeError("updater is still stopping; config was not changed")
+                backup = setup.apply(remove=args.command == "unsetup", section=args.section)
                 print(f"Updated {setup.config_path()}; backup: {backup}" if backup else "Config already up to date")
                 if args.command == "setup":
+                    config_file = storage.config_dir() / "config.json"
+                    existing = storage.read_json(config_file, {})
+                    existing["sidebar_mode"] = "section" if args.section else "agents"
+                    storage.write_json(config_file, existing)
                     herdr.call(["server", "reload-config"])
                     daemon.request_refresh()
                 else:
                     daemon.stop()
                     herdr.call(["server", "reload-config"])
             else:
-                print(setup.snippet())
+                print(setup.snippet(section=args.section))
                 print("Preview only. Run setup --apply to back up, validate and apply it.")
         elif args.command == "diagnostics":
             config = storage.settings()

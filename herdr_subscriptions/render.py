@@ -97,16 +97,21 @@ def credit_line(subscription):
                 parts.append("credits available" if credits.get("available") else "credits ?")
         elif credits.get("available") is not None:
             parts.append("credits yes" if credits["available"] else "credits none")
-    resets = subscription.get("resets")
+    resets = subscription.get("resets") if subscription.get("provider") != "claude" else None
     if resets and resets.get("available") is not None:
         parts.append(f"{resets['available']} resets")
     return " · ".join(parts)
 
 
-def subscription_rows(subscription, now, *, columns=23, cells=6, stale_seconds=900, compact=False):
+def subscription_rows(subscription, now, *, columns=23, cells=6, stale_seconds=900, compact=False, native=False):
     stale = bool(subscription.get("error")) or now - subscription.get("fetched_at", 0) > stale_seconds
     plan = text(subscription.get("plan")).title()
     title = subscription.get("label", subscription["provider"].title()) + (f" {plan}" if plan else "")
+    if subscription.get("provider") == "claude":
+        saved = subscription.get("resets") or {}
+        count = saved.get("available")
+        suffix = "*" if count is not None and saved.get("source") == "usage-page" else ""
+        title += f" · ↻{count if count is not None else '?'}{suffix}"
     rows = [("? " if stale else "") + title]
     if subscription.get("error"):
         rows.append("? " + text(subscription["error"]))
@@ -114,29 +119,46 @@ def subscription_rows(subscription, now, *, columns=23, cells=6, stale_seconds=9
         return [clip(r, columns) for r in rows]
     if stale:
         rows.append(f"? last good {duration(now - subscription['fetched_at'])} ago")
-    for limit in subscription.get("limits", []):
+    limits = subscription.get("limits", [])
+    shared = set()
+    for index, limit in enumerate(limits):
+        reset = limit.get("resets_at")
+        if (compact or native) and limit.get("window_minutes") == 10080 and reset is not None:
+            matching = [i for i, other in enumerate(limits)
+                        if other.get("window_minutes") == 10080 and other.get("resets_at") is not None
+                        and round(other["resets_at"]) == round(reset)]
+            if len(matching) > 1:
+                shared.update(matching)
+    for index, limit in enumerate(limits):
         used = limit.get("used_percent")
         reset = limit.get("resets_at")
         pending = reset is not None and reset <= now
         prefix = "? " if stale or pending or used is None else "! " if used >= 95 else "~ " if used >= 80 else ""
         label = clip(limit.get("label", "Limit"), 7)
         value = "?" if used is None or pending else f"{used:g}%"
-        rows.append(f"{prefix}{label} {bar(None if pending else used, cells)} {value}")
-        if limit.get("key") == "extra" and compact:
+        branch = "├ " if index in shared else ""
+        rows.append(f"{prefix}{branch}{label} {bar(None if pending else used, cells)} {value}")
+        if limit.get("key") == "extra" and (compact or native):
             left = extra_budget_left(limit)
-            if left is not None:
-                rows[-1] = f"{prefix}{amount(left)}/{amount(limit['money_limit'])} left {bar(used, cells)} ↻?"
-            else:
-                rows[-1] += " ↻?"
+            rows[-1] = f"{prefix}Credits {amount(left) if left else '?'} left"
+            rows.append(reset_line(reset, now) if reset else "  Monthly reset: ?")
             if limit.get("enabled") is False:
-                rows[-1] = "Extra usage off"
+                rows[-2] = "Credits disabled"
             continue
         if limit.get("key") == "extra":
             detail = f"{amount(limit.get('money_used'))}/{amount(limit.get('money_limit'))}"
             detail += " · off" if limit.get("enabled") is False else " · reset ?"
             rows.append("  " + detail)
         else:
-            rows.append(reset_line(reset, now))
+            if compact and subscription.get("provider") == "codex" and len(limits) == 1 and reset and not pending:
+                # Keep all subscription rows inside Herdr's 16-row ceiling.
+                # The dashboard retains the wide meter and reset countdown.
+                local = datetime.fromtimestamp(round(reset)).astimezone()
+                rows[-1] = f"{prefix}Wk {bar(used, 2)} {value} {local:%d%b%H:%M}"
+            elif index not in shared:
+                rows.append(reset_line(reset, now))
+            elif not any(i > index and round(limits[i]["resets_at"]) == round(reset) for i in shared):
+                rows.append("└ " + reset_line(reset, now).strip())
     credits = credit_line(subscription)
     if credits:
         rows.append(credits)
@@ -144,11 +166,13 @@ def subscription_rows(subscription, now, *, columns=23, cells=6, stale_seconds=9
 
 
 def sidebar_rows(snapshot, now, *, columns=23, row_budget=SIDEBAR_ROWS, stale_seconds=900):
-    rows = [GAP, "Subscriptions"]
     subscriptions = snapshot.get("subscriptions", [])
+    rows = [GAP, f"Subscriptions ({len(subscriptions)})"]
     if not subscriptions:
         rows.append("? Loading usage…")
-    for subscription in subscriptions:
+    for index, subscription in enumerate(subscriptions):
+        if index:
+            rows.append(GAP)
         rows.extend(subscription_rows(subscription, now, columns=columns, stale_seconds=stale_seconds, compact=True))
     if len(rows) > row_budget:
         hidden = len(rows) - row_budget + 1
@@ -164,6 +188,14 @@ def dashboard(snapshot, now, *, columns=70, stale_seconds=900):
         if credits and credits.get("balance") is not None:
             rows.append(f"  Credit balance: {credits['balance']} credits (not currency)")
         resets = subscription.get("resets")
+        if subscription.get("provider") == "claude" and (not resets or resets.get("available") is None):
+            rows.append("  Saved resets: unavailable from Claude CLI; check Settings > Usage")
+        if resets and resets.get("source") == "usage-page":
+            checked = datetime.fromtimestamp(resets["checked_at"]).astimezone()
+            rows.append(f"  * Saved resets last checked on Usage page: {checked:%d %b %H:%M %Z}")
+            for item in resets.get("items", []):
+                expiration = datetime.fromtimestamp(item["expires_at"]).astimezone()
+                rows.append(f"    {item['label']}: expires {expiration:%d %b %Y %H:%M %Z}")
         if resets and resets.get("expires_at"):
             expiration = datetime.fromtimestamp(resets["expires_at"][0]).astimezone()
             rows.append(f"  First saved reset expires: {expiration:%d %b %Y %H:%M %Z}")

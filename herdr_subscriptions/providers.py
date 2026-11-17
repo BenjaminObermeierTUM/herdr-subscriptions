@@ -213,7 +213,8 @@ def normalize_claude(response):
     extra = rate.get("extra_usage")
     if isinstance(spend, dict):
         result["limits"].append(metric(
-            "extra", "Extra", spend.get("percent"), period="monthly",
+            "extra", "Credits", spend.get("percent"),
+            spend.get("resets_at") or (extra.get("resets_at") if isinstance(extra, dict) else None), period="monthly",
             money_used=money(spend.get("used")), money_limit=money(spend.get("limit")),
             enabled=spend.get("enabled"),
             spend_limit_reached=extra.get("spend_limit_reached") if isinstance(extra, dict) else None,
@@ -222,7 +223,7 @@ def normalize_claude(response):
         exponent = extra.get("decimal_places", 2)
         currency = extra.get("currency", "USD")
         result["limits"].append(metric(
-            "extra", "Extra", extra.get("utilization"), period="monthly",
+            "extra", "Credits", extra.get("utilization"), extra.get("resets_at"), period="monthly",
             money_used=money({"amount_minor": extra.get("used_credits"), "exponent": exponent, "currency": currency}),
             money_limit=money({"amount_minor": extra.get("monthly_limit"), "exponent": exponent, "currency": currency}),
             enabled=extra.get("is_enabled"), spend_limit_reached=extra.get("spend_limit_reached"),
@@ -238,7 +239,7 @@ def fetch_codex():
         raise ProviderError("Codex CLI not installed")
     with JsonProcess([binary, "app-server", "--listen", "stdio://"]) as client:
         client.send({"id": 1, "method": "initialize", "params": {
-            "clientInfo": {"name": "herdr_subscriptions", "version": "0.1.0"}}})
+            "clientInfo": {"name": "herdr_subscriptions", "version": "0.2.0"}}})
         if client.receive(lambda o: o.get("id") == 1).get("error"):
             raise ProviderError("Codex initialization failed")
         client.send({"method": "initialized", "params": {}})
@@ -269,7 +270,10 @@ def fetch_claude():
                 raise ProviderError("Claude usage protocol unavailable; check CLI/sign-in")
             return reply.get("response") or {}
         request("subscriptions-init", {"subtype": "initialize"})
-        return normalize_claude(request("subscriptions-usage", {"subtype": "get_usage", "skip_behaviors": True}))
+        result = normalize_claude(request("subscriptions-usage", {"subtype": "get_usage", "skip_behaviors": True}))
+        from .storage import claude_resets
+        result["resets"] = claude_resets()
+        return result
 
 
 FETCHERS = {"codex": fetch_codex, "claude": fetch_claude}

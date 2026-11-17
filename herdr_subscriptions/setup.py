@@ -17,43 +17,49 @@ BEGIN = "# BEGIN herdr-subscriptions"
 END = "# END herdr-subscriptions"
 
 
-def snippet():
+def snippet(section=False):
     lines = [BEGIN, "[ui.sidebar.agents]", "rows = [",
              '  ["state_icon", "workspace", "tab"],', '  ["agent"],']
     for index in range(1, SIDEBAR_ROWS + 1):
         lines.append('  [{ token = "$subscriptions_%02d", rules = [' % index
                      + '{ starts_with = "! ", fg = "#f7768e", bold = true }, '
                      + '{ starts_with = "~ ", fg = "#e0af68" }, '
-                     + '{ starts_with = "? ", dim = true }'
+                     + '{ starts_with = "? ", dim = true }, '
+                     + '{ starts_with = "Subscriptions", fg = "#7aa2f7", bold = true }, '
+                     + '{ starts_with = "Codex", fg = "#9ece6a", bold = true }, '
+                     + '{ starts_with = "Claude", fg = "#bb9af7", bold = true }'
                      + '] }],')
     lines.extend(["]", "", "[[keys.command]]", 'key = "prefix+u"', 'type = "plugin_action"',
                   'command = "subscriptions.open"', 'description = "subscription limits"', END])
+    if section:
+        shortcut = lines.index("[[keys.command]]")
+        lines = [BEGIN, *lines[shortcut:]]
     return "\n".join(lines) + "\n"
 
 
-def proposed(original):
+def proposed(original, section=False):
     if original.count(BEGIN) != original.count(END) or original.count(BEGIN) > 1:
         raise ValueError("existing plugin config markers are malformed")
     if BEGIN in original:
-        return re.sub(re.escape(BEGIN) + r".*?" + re.escape(END) + r"\n?", snippet(), original, flags=re.S)
-    if re.search(r"(?m)^\s*\[ui\.sidebar\.agents(?:\.rows_by_agent)?\]\s*(?:#.*)?$", original):
+        return re.sub(re.escape(BEGIN) + r".*?" + re.escape(END) + r"\n?", snippet(section), original, flags=re.S)
+    if not section and re.search(r"(?m)^\s*\[ui\.sidebar\.agents(?:\.rows_by_agent)?\]\s*(?:#.*)?$", original):
         raise ValueError("existing agent sidebar layout found; append the printed tokens to your rows manually")
     if re.search(r'(?m)^\s*key\s*=\s*[\"\']prefix\+u[\"\']', original):
         raise ValueError("prefix+u is already configured; choose another dashboard key in the printed snippet")
-    return original.rstrip() + "\n\n" + snippet()
+    return original.rstrip() + "\n\n" + snippet(section)
 
 
 def config_path():
     return Path(os.environ.get("HERDR_CONFIG_PATH", str(Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "herdr/config.toml")))
 
 
-def apply(*, remove=False):
+def apply(*, remove=False, section=False):
     path = config_path()
     original = path.read_text() if path.exists() else ""
     if remove:
         candidate = re.sub(re.escape(BEGIN) + r".*?" + re.escape(END) + r"\n?", "", original, flags=re.S)
     else:
-        candidate = proposed(original)
+        candidate = proposed(original, section=section)
     if candidate == original:
         return None
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)

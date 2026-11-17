@@ -1,25 +1,32 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="420" height="575" viewBox="0 0 420 575">
-<rect width="420" height="575" rx="14" fill="#161821"/>
-<text x="24" y="28" font-family="monospace" font-size="13" fill="#737aa2">Herdr · synthetic sidebar preview</text>
-<path d="M18 42H402" stroke="#33384d"/>
-<text x="24" y="70" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" fill="#c0caf5">agents</text>
-<text x="24" y="95" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" fill="#c0caf5">● my-project · implement</text>
-<text x="24" y="120" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" fill="#9aa5ce">  codex</text>
-<text x="24" y="145" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" fill="#c0caf5">○ demo-project · review</text>
-<text x="24" y="170" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" fill="#9aa5ce">  Claude</text>
-<text x="24" y="195" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" fill="#c0caf5">⠀</text>
-<text x="24" y="220" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" fill="#7aa2f7">Subscriptions</text>
-<text x="24" y="245" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" fill="#7aa2f7">Codex Pro</text>
-<text x="24" y="270" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" fill="#c0caf5">Weekly ████░░ 72%</text>
-<text x="24" y="295" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" fill="#9aa5ce">  19 Nov 14:31 · 2d0h</text>
-<text x="24" y="320" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" fill="#c0caf5">1,250cr · 2 resets</text>
-<text x="24" y="345" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" fill="#7aa2f7">Claude Team</text>
-<text x="24" y="370" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" fill="#e0af68">~ 5h █████░ 85%</text>
-<text x="24" y="395" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" fill="#9aa5ce">  17 Nov 16:01 · 1h30m</text>
-<text x="24" y="420" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" fill="#c0caf5">Weekly ██░░░░ 32%</text>
-<text x="24" y="445" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" fill="#9aa5ce">  18 Nov 14:31 · 1d0h</text>
-<text x="24" y="470" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" fill="#c0caf5">Fable ███░░░ 53%</text>
-<text x="24" y="495" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" fill="#9aa5ce">  18 Nov 14:31 · 1d0h</text>
-<text x="24" y="520" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" fill="#c0caf5">€15/€20 left ██░░░░ ↻?</text>
-<text x="24" y="555" font-family="monospace" font-size="12" fill="#737aa2">Percentages show usage · no real account data</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="440" height="676" viewBox="0 0 440 676">
+<rect width="440" height="676" rx="14" fill="#161821"/>
+<text x="24" y="28" font-family="monospace" font-size="13" fill="#737aa2">Herdr · independent subscription section</text>
+<path d="M18 42H422" stroke="#33384d"/>
+<text x="24" y="74" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" font-weight="bold" fill="#7aa2f7">spaces</text>
+<text x="24" y="98" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" font-weight="normal" fill="#c0caf5">● my-project</text>
+<text x="24" y="122" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" font-weight="normal" fill="#737aa2">  main</text>
+<text x="24" y="146" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" font-weight="normal" fill="#c0caf5"></text>
+<path d="M20 151H420" stroke="#33384d"/>
+<text x="24" y="170" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" font-weight="bold" fill="#7aa2f7">agents</text>
+<text x="24" y="194" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" font-weight="normal" fill="#c0caf5">● my-project · implement</text>
+<text x="24" y="218" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" font-weight="normal" fill="#737aa2">  codex</text>
+<text x="24" y="242" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" font-weight="normal" fill="#c0caf5">○ demo-project · review</text>
+<text x="24" y="266" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" font-weight="normal" fill="#737aa2">  Claude</text>
+<text x="24" y="290" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" font-weight="normal" fill="#c0caf5"></text>
+<path d="M20 295H420" stroke="#33384d"/>
+<text x="24" y="314" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" font-weight="bold" fill="#7aa2f7">Subscriptions (2)</text>
+<text x="24" y="338" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" font-weight="bold" fill="#9ece6a">Codex Pro</text>
+<text x="24" y="362" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" font-weight="normal" fill="#c0caf5">Weekly ████░░ 72%</text>
+<text x="24" y="386" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" font-weight="normal" fill="#c0caf5">  19 Nov 15:16 · 2d0h</text>
+<text x="24" y="410" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" font-weight="normal" fill="#c0caf5">1,250cr · 2 resets</text>
+<text x="24" y="434" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" font-weight="normal" fill="#c0caf5"></text>
+<text x="24" y="458" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" font-weight="bold" fill="#bb9af7">Claude Team · ↻1*</text>
+<text x="24" y="482" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" font-weight="normal" fill="#e0af68">~ 5h █████░ 85%</text>
+<text x="24" y="506" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" font-weight="normal" fill="#c0caf5">  17 Nov 16:46 · 1h30m</text>
+<text x="24" y="530" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" font-weight="normal" fill="#c0caf5">├ Weekly ██░░░░ 32%</text>
+<text x="24" y="554" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" font-weight="normal" fill="#c0caf5">├ Fable ███░░░ 53%</text>
+<text x="24" y="578" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" font-weight="normal" fill="#c0caf5">└ 18 Nov 15:16 · 1d0h</text>
+<text x="24" y="602" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" font-weight="normal" fill="#c0caf5">Credits €15 left</text>
+<text x="24" y="626" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="16" font-weight="normal" fill="#c0caf5">  Monthly reset: ?</text>
+<text x="24" y="656" font-family="monospace" font-size="12" fill="#737aa2">Synthetic data · no real account information</text>
 </svg>
