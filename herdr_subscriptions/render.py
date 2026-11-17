@@ -71,6 +71,19 @@ def amount(value):
         return "?"
 
 
+def extra_budget_left(limit):
+    used, cap = limit.get("money_used"), limit.get("money_limit")
+    if not used or not cap or used.get("currency") != cap.get("currency"):
+        return None
+    try:
+        used_amount, cap_amount = Decimal(used["amount"]), Decimal(cap["amount"])
+        if not used_amount.is_finite() or not cap_amount.is_finite() or cap_amount < 0:
+            return None
+        return {"amount": str(max(Decimal(0), cap_amount - used_amount)), "currency": cap["currency"]}
+    except (KeyError, InvalidOperation, ValueError):
+        return None
+
+
 def credit_line(subscription):
     parts = []
     credits = subscription.get("credits")
@@ -110,7 +123,13 @@ def subscription_rows(subscription, now, *, columns=23, cells=6, stale_seconds=9
         value = "?" if used is None or pending else f"{used:g}%"
         rows.append(f"{prefix}{label} {bar(None if pending else used, cells)} {value}")
         if limit.get("key") == "extra" and compact:
-            rows[-1] += " ↻?"
+            left = extra_budget_left(limit)
+            if left is not None:
+                rows[-1] = f"{prefix}{amount(left)}/{amount(limit['money_limit'])} left {bar(used, cells)} ↻?"
+            else:
+                rows[-1] += " ↻?"
+            if limit.get("enabled") is False:
+                rows[-1] = "Extra usage off"
             continue
         if limit.get("key") == "extra":
             detail = f"{amount(limit.get('money_used'))}/{amount(limit.get('money_limit'))}"
@@ -150,7 +169,10 @@ def dashboard(snapshot, now, *, columns=70, stale_seconds=900):
             rows.append(f"  First saved reset expires: {expiration:%d %b %Y %H:%M %Z}")
         for limit in subscription.get("limits", []):
             if limit.get("key") == "extra":
-                rows.append("  Extra usage: monthly cap; renewal date not reported")
+                left = extra_budget_left(limit)
+                if left is not None:
+                    rows.append(f"  Extra budget remaining: {amount(left)} of {amount(limit['money_limit'])}")
+                rows.append("  Extra usage: monthly spending cap; renewal date not reported")
                 if limit.get("spend_limit_reached") is False and (limit.get("used_percent") or 0) >= 100:
                     rows.append("  Cap is used; provider's hard-block flag is false")
         fetched = subscription.get("fetched_at")

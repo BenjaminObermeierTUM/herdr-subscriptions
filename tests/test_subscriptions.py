@@ -149,7 +149,7 @@ class RenderTests(unittest.TestCase):
         self.assertIn("Codex Pro", rows)
         self.assertIn("Claude Team", rows)
         self.assertTrue(all(render.width(row) <= 23 for row in rows))
-        for expected in ("Codex", "Claude", "Weekly", "Fable", "Extra", "resets"):
+        for expected in ("Codex", "Claude", "Weekly", "Fable", "€", "left", "resets"):
             self.assertTrue(any(expected in r for r in rows), expected)
         self.assertFalse(any("more" in r or "dashboard" in r for r in rows))
 
@@ -179,6 +179,21 @@ class RenderTests(unittest.TestCase):
         boundary = 1893499200
         expected = datetime.fromtimestamp(boundary).astimezone().strftime("%d %b %H:%M")
         self.assertIn(expected, render.reset_line(boundary - 0.00001, boundary - 100))
+
+
+    def test_extra_budget_is_remaining_spend_headroom_not_purchased_balance(self):
+        limit = {"key": "extra", "label": "Extra", "used_percent": 100,
+                 "money_used": {"amount": "12.65", "currency": "EUR"},
+                 "money_limit": {"amount": "10", "currency": "EUR"}, "enabled": True}
+        self.assertEqual(render.extra_budget_left(limit), {"amount": "0", "currency": "EUR"})
+        sub = {"provider": "claude", "label": "Claude", "fetched_at": 100, "limits": [limit]}
+        rows = render.subscription_rows(sub, 101, compact=True)
+        self.assertIn("€0/€10 left", rows[1])
+        self.assertIn("██████", rows[1])
+        limit["money_used"]["amount"] = "4"
+        self.assertEqual(render.extra_budget_left(limit)["amount"], "6")
+        limit["money_used"]["currency"] = "USD"
+        self.assertIsNone(render.extra_budget_left(limit))
 
 
 class IntegrationTests(unittest.TestCase):

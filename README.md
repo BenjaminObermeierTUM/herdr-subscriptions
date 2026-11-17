@@ -10,7 +10,7 @@ countdown. Credits and saved resets are shown separately from the included quota
 
 - Every limit window Codex reports, including additional model/feature buckets.
 - Claude's five-hour, overall weekly and model-specific weekly limits.
-- Claude extra-usage cap consumption, with exact spending and enabled status in the dashboard.
+- Claude extra-usage money budget (`€15/€20 left`) and consumption bar, with exact spending and enabled status in the dashboard.
 - Codex usage-credit balance, saved-reset count and their first expiration in the dashboard.
 - Explicit unavailable, failed, stale and reset-pending states. A passed reset time
   never becomes an invented 0% usage reading.
@@ -65,7 +65,9 @@ update every five seconds. **Subscriptions: refresh now** forces a refresh.
 On a failed fetch, last-good numbers remain marked stale together with their age.
 Successful data becomes stale after 15 minutes. If a quota reset has passed but
 the provider has not returned a fresh window yet, the display says to refresh
-instead of assuming a refill. Monthly renewal dates are shown as unknown when
+instead of assuming a refill. Claude's money row shows remaining monthly spending headroom, while Codex's
+credit row shows its reported credit balance. Those are different quantities.
+Monthly renewal dates are shown as unknown when
 the provider does not return them. Credit amounts are credits, not currency.
 
 ## Configuration
