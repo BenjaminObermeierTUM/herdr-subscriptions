@@ -84,34 +84,40 @@ def extra_budget_left(limit):
         return None
 
 
-def credit_line(subscription):
-    parts = []
-    credits = subscription.get("credits")
-    if credits:
-        if credits.get("unlimited"):
-            parts.append("credits unlimited")
-        elif credits.get("balance") is not None:
-            try:
-                parts.append(f"{Decimal(credits['balance']):,.0f}cr")
-            except InvalidOperation:
-                parts.append("credits available" if credits.get("available") else "credits ?")
-        elif credits.get("available") is not None:
-            parts.append("credits yes" if credits["available"] else "credits none")
-    resets = subscription.get("resets") if subscription.get("provider") != "claude" else None
-    if resets and resets.get("available") is not None:
-        parts.append(f"{resets['available']} resets")
-    return " · ".join(parts)
+def credit_value(subscription):
+    if subscription.get("provider") == "claude":
+        extra = next((limit for limit in subscription.get("limits", []) if limit.get("key") == "extra"), None)
+        if extra is None:
+            return "?"
+        if extra.get("enabled") is False:
+            return "disabled"
+        left = extra_budget_left(extra)
+        return amount(left) if left else "?"
+    credits = subscription.get("credits") or {}
+    if credits.get("unlimited"):
+        return "unlimited"
+    if credits.get("balance") is not None:
+        try:
+            return f"{Decimal(credits['balance']):,.0f}"
+        except InvalidOperation:
+            pass
+    return "available" if credits.get("available") else "?"
+
+
+def balance_rows(subscription, *, compact=False):
+    credits = credit_value(subscription)
+    count = (subscription.get("resets") or {}).get("available")
+    resets = str(count) if count is not None else "?"
+    if compact:
+        unit = "cr" if subscription.get("provider") == "codex" and credits[:1].isdigit() else ""
+        return [f"{credits}{unit} · {resets} resets"]
+    return [f"Credits {credits}", f"Resets {resets}"]
 
 
 def subscription_rows(subscription, now, *, columns=23, cells=6, stale_seconds=900, compact=False, native=False):
     stale = bool(subscription.get("error")) or now - subscription.get("fetched_at", 0) > stale_seconds
     plan = text(subscription.get("plan")).title()
     title = subscription.get("label", subscription["provider"].title()) + (f" {plan}" if plan else "")
-    if subscription.get("provider") == "claude":
-        saved = subscription.get("resets") or {}
-        count = saved.get("available")
-        suffix = "*" if count is not None and saved.get("source") == "usage-page" else ""
-        title += f" · ↻{count if count is not None else '?'}{suffix}"
     rows = [("? " if stale else "") + title]
     if subscription.get("error"):
         rows.append("? " + text(subscription["error"]))
@@ -134,10 +140,6 @@ def subscription_rows(subscription, now, *, columns=23, cells=6, stale_seconds=9
         reset = limit.get("resets_at")
         pending = reset is not None and reset <= now
         if limit.get("key") == "extra":
-            left = extra_budget_left(limit)
-            rows.append("Credits disabled" if limit.get("enabled") is False
-                        else f"Credits {amount(left) if left else '?'} left")
-            rows.append(reset_line(reset, now) if reset else "  Monthly reset: ?")
             continue
         prefix = "? " if stale or pending or used is None else "! " if used >= 95 else "~ " if used >= 80 else ""
         label = clip(limit.get("label", "Limit"), 7)
@@ -153,9 +155,7 @@ def subscription_rows(subscription, now, *, columns=23, cells=6, stale_seconds=9
             rows.append(reset_line(reset, now))
         elif not any(i > index and round(limits[i]["resets_at"]) == round(reset) for i in shared):
             rows.append("└ " + reset_line(reset, now).strip())
-    credits = credit_line(subscription)
-    if credits:
-        rows.append(credits)
+    rows.extend(balance_rows(subscription, compact=compact))
     return [clip(r, columns) for r in rows]
 
 

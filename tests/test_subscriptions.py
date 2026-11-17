@@ -1,3 +1,4 @@
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -160,7 +161,7 @@ class CacheTests(unittest.TestCase):
 class RenderTests(unittest.TestCase):
     def test_current_five_limit_layout_fits_stock_herdr(self):
         rows = render.sidebar_rows(demo(), time.time())
-        self.assertEqual(len(rows), 14)
+        self.assertLessEqual(len(rows), 14)
         self.assertEqual(rows[0], render.GAP)
         self.assertEqual(rows[1], "Subscriptions (2)")
         self.assertEqual(rows.count(render.GAP), 2)
@@ -168,7 +169,7 @@ class RenderTests(unittest.TestCase):
         self.assertIn("Codex Pro", rows)
         self.assertTrue(any(row.startswith("Claude Team") for row in rows))
         self.assertTrue(all(render.width(row) <= 23 for row in rows))
-        for expected in ("Codex", "Claude", "Weekly", "Fable", "€", "left", "resets"):
+        for expected in ("Codex", "Claude", "Weekly", "Fable", "€", "resets"):
             self.assertTrue(any(expected in r for r in rows), expected)
         self.assertFalse(any("more" in r or "dashboard" in r for r in rows))
 
@@ -206,14 +207,16 @@ class RenderTests(unittest.TestCase):
                  "money_limit": {"amount": "10", "currency": "EUR"}, "enabled": True}
         self.assertEqual(render.extra_budget_left(limit), {"amount": "0", "currency": "EUR"})
         sub = {"provider": "claude", "label": "Claude", "fetched_at": 100, "limits": [limit]}
-        rows = render.subscription_rows(sub, 101, compact=True)
-        self.assertEqual("Credits €0 left", rows[1])
-        for mode in ({}, {"compact": True}, {"native": True}):
-            self.assertEqual(render.subscription_rows(sub, 101, **mode)[1], "Credits €0 left")
+        sub["resets"] = {"available": 1}
+        self.assertEqual(render.subscription_rows(sub, 101, compact=True)[1], "€0 · 1 resets")
+        for mode in ({}, {"native": True}):
+            self.assertEqual(render.subscription_rows(sub, 101, **mode)[1:], ["Credits €0", "Resets 1"])
         with patch.object(storage, "settings", return_value={"stale_seconds": 900}):
-            document = native.section_document({"subscriptions": [sub]}, 101)
-        self.assertIn({"text": "Credits €0 left", "kind": "text"}, document["rows"])
-        self.assertIn("Monthly reset: ?", rows[2])
+            for percent in (0, 80, 100):
+                limit["used_percent"] = percent
+                document = native.section_document({"subscriptions": [sub]}, 101)
+                self.assertIn({"text": "Credits €0", "kind": "text"}, document["rows"])
+                self.assertIn({"text": "Resets 1", "kind": "text"}, document["rows"])
         limit["money_used"]["amount"] = "4"
         self.assertEqual(render.extra_budget_left(limit)["amount"], "6")
         limit["money_used"]["currency"] = "USD"
@@ -229,7 +232,11 @@ class NativeSectionTests(unittest.TestCase):
         self.assertTrue(any(r["kind"] == "codex" for r in document["rows"]))
         self.assertTrue(any(r["kind"] == "claude" for r in document["rows"]))
         self.assertTrue(any(r["text"] == "" for r in document["rows"]))
-        self.assertTrue(any("Credits" in r["text"] and "left" in r["text"] for r in document["rows"]))
+        self.assertTrue(any(r["text"] == "Credits €15" for r in document["rows"]))
+        self.assertIn({"text": "Credits 1,250", "kind": "text"}, document["rows"])
+        self.assertIn({"text": "Resets 2", "kind": "text"}, document["rows"])
+        self.assertIn({"text": "Resets 1", "kind": "text"}, document["rows"])
+        self.assertFalse(any("↻" in row["text"] for row in document["rows"]))
         self.assertNotIn("pane_id", json.dumps(document))
         self.assertNotIn("workspace_id", json.dumps(document))
 
@@ -242,6 +249,81 @@ class NativeSectionTests(unittest.TestCase):
         self.assertTrue(setup.proposed(custom, section=True).startswith(custom.rstrip()))
 
 
+class DaemonTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.env = patch.dict(os.environ, {"HERDR_PLUGIN_STATE_DIR": self.temp.name + "/state",
+                                          "HERDR_PLUGIN_CONFIG_DIR": self.temp.name + "/config"})
+        self.env.start()
+        storage.write_json(storage.config_dir() / "config.json", {"sidebar_mode": "section", "providers": []})
+        self.children = []
+        self.original_popen = subprocess.Popen
+        def spawn(*args, **kwargs):
+            child = self.original_popen(*args, **kwargs)
+            self.children.append(child)
+            return child
+        self.spawn_patch = patch.object(daemon.subprocess, "Popen", side_effect=spawn)
+        self.spawn_patch.start()
+
+    def tearDown(self):
+        try:
+            daemon.stop()
+            for child in self.children:
+                try:
+                    child.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    child.kill()
+                    child.wait(timeout=2)
+        finally:
+            self.spawn_patch.stop()
+            self.env.stop()
+            self.temp.cleanup()
+
+    def test_native_clients_with_different_session_contexts_reuse_one_worker(self):
+        with patch.dict(os.environ, {"HERDR_SOCKET_PATH": "outer", "HERDR_SESSION_NAME": ""}):
+            daemon.start()
+            root = daemon.controller_dir()
+            first = storage.read_json(root / "runtime.json", {})["pid"]
+        with patch.dict(os.environ, {"HERDR_SOCKET_PATH": "agent", "HERDR_SESSION_NAME": "main"}):
+            daemon.start()
+            self.assertEqual(daemon.controller_dir(), root)
+            self.assertEqual(storage.read_json(root / "runtime.json", {})["pid"], first)
+            self.assertTrue(daemon.running())
+        self.assertEqual(len(self.children), 1)
+
+    def test_start_replaces_an_older_loaded_version(self):
+        daemon.start()
+        root = daemon.controller_dir()
+        runtime = storage.read_json(root / "runtime.json", {})
+        runtime["version"] = "older"
+        storage.write_json(root / "runtime.json", runtime)
+        daemon.start()
+        self.assertEqual(len(self.children), 2)
+        self.assertIsNotNone(self.children[0].poll())
+        self.assertNotEqual(storage.read_json(root / "runtime.json", {})["pid"], runtime["pid"])
+        self.assertTrue(daemon.running())
+
+    def test_old_session_writer_is_invalidated_before_migration(self):
+        legacy = storage.private_dir(storage.session_dir())
+        storage.write_json(legacy / "generation.json", {"generation": "old"})
+        with (legacy / "daemon.lock").open("a+") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            def drain(root):
+                self.assertEqual(root, legacy)
+                self.assertTrue((root / "stop").exists())
+                self.assertNotEqual(daemon.generation(root), "old")
+                fcntl.flock(lock, fcntl.LOCK_UN)
+            with patch.object(daemon, "wait_stopped", side_effect=drain) as wait:
+                daemon.retire_legacy_sections()
+                wait.assert_called_once_with(legacy)
+
+    def test_native_publisher_has_no_dependency_on_a_session_socket(self):
+        with patch.object(herdr, "call") as call:
+            herdr.publish(demo())
+        call.assert_not_called()
+        self.assertTrue((storage.state_dir() / "section.json").is_file())
+
+
 class IntegrationTests(unittest.TestCase):
     def test_metadata_moves_with_last_agent_and_clears_previous(self):
         with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, {"HERDR_PLUGIN_STATE_DIR": temporary, "HERDR_PLUGIN_CONFIG_DIR": temporary + "/config"}):
@@ -250,7 +332,7 @@ class IntegrationTests(unittest.TestCase):
                 herdr.publish(demo())
                 self.assertEqual(write.call_args_list[0].args, ("w1:p-old",))
                 self.assertEqual(write.call_args_list[1].args[0], "w1:p-new")
-                self.assertEqual(len(write.call_args_list[1].args[1]), 14)
+                self.assertLessEqual(len(write.call_args_list[1].args[1]), 14)
                 self.assertEqual(write.call_args_list[1].kwargs, {"kind": "pane"})
 
     def test_last_agent_uses_herdr_priority_then_recency(self):

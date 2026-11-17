@@ -71,7 +71,6 @@ def publish(snapshot=None):
     from . import native
     native.publish(snapshot)
     if storage.settings()["sidebar_mode"] == "section":
-        workspaces()  # Session liveness only; no pane/workspace metadata is written.
         return
     rows = sidebar_rows(snapshot, time.time(), stale_seconds=storage.settings()["stale_seconds"])
     target = last_agent(agents(), agent_sort())

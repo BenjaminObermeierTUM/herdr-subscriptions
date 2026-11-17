@@ -239,7 +239,7 @@ def fetch_codex():
         raise ProviderError("Codex CLI not installed")
     with JsonProcess([binary, "app-server", "--listen", "stdio://"]) as client:
         client.send({"id": 1, "method": "initialize", "params": {
-            "clientInfo": {"name": "herdr_subscriptions", "version": "0.2.1"}}})
+            "clientInfo": {"name": "herdr_subscriptions", "version": "0.2.2"}}})
         if client.receive(lambda o: o.get("id") == 1).get("error"):
             raise ProviderError("Codex initialization failed")
         client.send({"method": "initialized", "params": {}})

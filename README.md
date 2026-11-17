@@ -2,7 +2,8 @@
 
 An independent **Subscriptions** section below Spaces and Agents in Herdr.
 Bold provider headings and vertical spacing separate Claude and Codex. Each
-quota shows usage and its next reset; Credits shows the amount left in a neutral colour.
+quota shows usage and its next reset. Both subscriptions end with plain, neutral
+`Credits <amount>` and `Resets <count>` rows.
 
 ![Synthetic preview](docs/sidebar.svg)
 
@@ -49,19 +50,21 @@ no new server messages, API methods, or wire-format fields. See
 - Claude's five-hour, overall weekly and model-specific weekly limits.
 - Next local reset times and countdowns; weekly limits sharing a reset are bracketed together.
 - Codex's remaining usage-credit balance and saved-reset count.
-- Claude's `Credits €X left` and renewal line. This currently represents remaining
-  monthly extra-usage spending headroom; exact spending/cap details are in the dashboard.
+- Claude's `Credits €X`. This represents remaining monthly extra-usage spending
+  headroom; exact spending/cap and renewal details are in the dashboard.
 - Claude saved resets as an explicitly **last checked** Usage-page snapshot when supplied.
 
 Higher quota percentages mean more **used**. A passed reset time is marked
-pending until a fresh vendor report arrives. Missing renewal dates say
-`Monthly reset: ?`; the plugin never invents a billing date or treats missing
-data as zero. Claude's credit renewal date is not currently returned by its CLI.
+pending until a fresh vendor report arrives. Missing credit-renewal dates are
+described as unavailable in the dashboard; the plugin never invents a billing
+date or treats missing data as zero. Claude's CLI does not currently return its
+credit renewal date.
 
-`↻2*` beside Claude means two saved resets were last checked on its official
-Usage page; `↻?` means that count is unavailable. These offers are separate from
-ordinary five-hour/weekly quota refreshes and do not replenish on a guaranteed
-weekly or monthly schedule.
+The sidebar shows one total `Resets` count for each subscription. Claude's total
+comes from an explicitly last-checked Usage-page snapshot; its check time, full
+and Fable breakdown, and expirations remain in the dashboard. Unknown counts
+show `?`. Saved resets are separate from ordinary five-hour/weekly quota
+refreshes and have no guaranteed weekly or monthly replenishment schedule.
 
 ## Dashboard and refresh
 
@@ -73,6 +76,12 @@ Vendor metadata refreshes every five minutes and just after the next reported
 quota reset, with a 25-second deadline per provider. Placement/feed/countdowns
 update every five seconds. Provider failures preserve last-good values marked
 stale, without discarding the other provider. The native section dims stale feeds.
+
+All standalone clients share one updater and feed, regardless of the shell or
+Herdr session they were launched from. Startup drains older session writers and
+replaces an updater running an older plugin version. Detaching clients leaves
+the shared updater running until `stop` or uninstall. Stock fallback workers
+remain session-local.
 
 ## Stock Herdr fallback
 
@@ -119,7 +128,7 @@ an independently checked count in `claude-resets.json` in the plugin config dire
 }
 ```
 
-The count always carries `*` and its last-check time in the dashboard. Classifying
+The dashboard marks the count with `*` and shows its last-check time. Classifying
 every offer with `kind` (`full`, `fable`, `five_hour`, or `weekly`) also shows the
 remaining full and Fable counts in the dashboard. Unclassified offers leave that
 breakdown unavailable rather than implying zero. Expired

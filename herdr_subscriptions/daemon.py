@@ -1,4 +1,4 @@
-"""One small updater per Herdr session; providers share a locked local cache."""
+"""One shared section updater; stock fallback workers remain session-local."""
 
 from __future__ import annotations
 
@@ -11,15 +11,21 @@ import sys
 import time
 import uuid
 
-from . import collector, herdr, storage
+from . import __version__, collector, herdr, storage
 
 
-def generation():
-    return storage.read_json(storage.session_dir() / "generation.json", {}).get("generation")
+def controller_dir():
+    if storage.settings()["sidebar_mode"] == "section":
+        return storage.state_dir() / "section-controller"
+    return storage.session_dir()
 
 
-def running():
-    root = storage.private_dir(storage.session_dir())
+def generation(root=None):
+    return storage.read_json((root or controller_dir()) / "generation.json", {}).get("generation")
+
+
+def running(root=None):
+    root = storage.private_dir(root or controller_dir())
     with (root / "daemon.lock").open("a+") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -28,59 +34,99 @@ def running():
             return True
 
 
-def start():
-    root = storage.private_dir(storage.session_dir())
-    stop = root / "stop"
-    stop.unlink(missing_ok=True)
-    if running():
-        return
+def signal_stop(root):
+    (root / "stop").touch(mode=0o600)
+    # Older workers already observe this generation, even if another start clears stop.
     storage.write_json(root / "generation.json", {"generation": str(uuid.uuid4())})
-    env = dict(os.environ)
-    project = str(Path(__file__).resolve().parent.parent)
-    env["PYTHONPATH"] = project + os.pathsep + env.get("PYTHONPATH", "")
-    subprocess.Popen([sys.executable, "-m", "herdr_subscriptions", "worker"],
-                     cwd=project, env=env, stdin=subprocess.DEVNULL,
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                     start_new_session=True)
-    # Wait briefly for the daemon lock, not for the provider network requests.
-    deadline = time.monotonic() + 2
-    while time.monotonic() < deadline:
-        if running():
-            return
-        time.sleep(0.05)
-    raise RuntimeError("updater did not start")
+
+
+def wait_stopped(root):
+    deadline = time.monotonic() + 35
+    while running(root) and time.monotonic() < deadline:
+        time.sleep(0.1)
+    if running(root):
+        raise RuntimeError("previous updater is still stopping")
+
+
+def retire_legacy_sections():
+    """Drain old session-local writers before starting the single section writer."""
+    if storage.settings()["sidebar_mode"] != "section":
+        return
+    legacy = storage.state_dir() / "sessions"
+    if not legacy.is_dir():
+        return
+    active = [path for path in legacy.iterdir()
+              if path.is_dir() and (path / "daemon.lock").is_file() and running(path)]
+    for root in active:
+        signal_stop(root)
+    for root in active:
+        wait_stopped(root)
+
+
+def start():
+    root = storage.private_dir(controller_dir())
+    # Native clients opened from an outer shell or an agent share this lock.
+    with (root / "control.lock").open("a+") as control:
+        fcntl.flock(control, fcntl.LOCK_EX)
+        retire_legacy_sections()
+        if running(root):
+            version = storage.read_json(root / "runtime.json", {}).get("version")
+            if version == __version__:
+                return
+            signal_stop(root)
+            wait_stopped(root)
+        (root / "stop").unlink(missing_ok=True)
+        storage.write_json(root / "generation.json", {"generation": str(uuid.uuid4())})
+        env = dict(os.environ)
+        project = str(Path(__file__).resolve().parent.parent)
+        env["PYTHONPATH"] = project + os.pathsep + env.get("PYTHONPATH", "")
+        subprocess.Popen([sys.executable, "-m", "herdr_subscriptions", "worker"],
+                         cwd=project, env=env, stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+        # Wait for ownership/version, never for provider network requests.
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            if running(root) and storage.read_json(root / "runtime.json", {}).get("version") == __version__:
+                return
+            time.sleep(0.05)
+        raise RuntimeError("updater did not start")
 
 
 def stop():
-    root = storage.private_dir(storage.session_dir())
-    (root / "stop").touch(mode=0o600)
-    # The worker notices within two seconds. Token TTL also handles crashes.
-    herdr.clear()
-    from . import native
-    native.clear()
+    root = storage.private_dir(controller_dir())
+    with (root / "control.lock").open("a+") as control:
+        fcntl.flock(control, fcntl.LOCK_EX)
+        signal_stop(root)
+        retire_legacy_sections()
+        if storage.settings()["sidebar_mode"] == "agents":
+            herdr.clear()
+        from . import native
+        native.clear()
 
 
 def request_refresh():
-    storage.private_dir(storage.session_dir())
-    (storage.session_dir() / "refresh").touch(mode=0o600)
+    root = storage.private_dir(controller_dir())
+    (root / "refresh").touch(mode=0o600)
     start()
 
 
 def worker():
-    root = storage.private_dir(storage.session_dir())
+    root = storage.private_dir(controller_dir())
     with (root / "daemon.lock").open("a+") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return
-        ours = generation()
+        ours = generation(root)
+        storage.write_json(root / "runtime.json", {"pid": os.getpid(), "version": __version__})
         next_poll = 0
         next_fetch = 0
         errors = 0
         future = None
         executor = ThreadPoolExecutor(max_workers=1)
         try:
-            while generation() == ours and not (root / "stop").exists():
+            while generation(root) == ours and not (root / "stop").exists():
                 now = time.time()
                 force = (root / "refresh").exists()
                 if future is not None and future.done():
@@ -113,8 +159,10 @@ def worker():
         finally:
             executor.shutdown(wait=True)
             try:
-                herdr.clear()
+                if storage.settings()["sidebar_mode"] == "agents":
+                    herdr.clear()
                 from . import native
                 native.clear()
             except Exception:
                 pass
+            (root / "runtime.json").unlink(missing_ok=True)
