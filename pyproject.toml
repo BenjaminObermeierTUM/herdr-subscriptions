@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "herdr-subscriptions"
+version = "0.1.0"
+description = "Subscription quota meters for Herdr: Claude and Codex"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "Benjamin Obermeier"}]
+dependencies = []
+
+[project.scripts]
+herdr-subscriptions = "herdr_subscriptions.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["herdr_subscriptions*"]

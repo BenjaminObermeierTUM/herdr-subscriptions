@@ -1,0 +1,40 @@
+id = "subscriptions"
+name = "Subscriptions"
+version = "0.1.0"
+min_herdr_version = "0.9.5"
+description = "Claude and Codex subscription limits, progress bars, reset countdowns, credits and saved resets below the agents list."
+platforms = ["macos", "linux"]
+
+[[startup]]
+command = ["python3", "-m", "herdr_subscriptions", "start"]
+
+[[actions]]
+id = "open"
+title = "Subscriptions: open dashboard"
+command = ["python3", "-m", "herdr_subscriptions", "open"]
+
+[[actions]]
+id = "refresh"
+title = "Subscriptions: refresh now"
+command = ["python3", "-m", "herdr_subscriptions", "request-refresh"]
+
+[[actions]]
+id = "start"
+title = "Subscriptions: start sidebar updates"
+command = ["python3", "-m", "herdr_subscriptions", "start"]
+
+[[actions]]
+id = "stop"
+title = "Subscriptions: stop sidebar updates"
+command = ["python3", "-m", "herdr_subscriptions", "stop"]
+
+[[actions]]
+id = "setup"
+title = "Subscriptions: preview sidebar setup"
+command = ["python3", "-m", "herdr_subscriptions", "setup"]
+
+[[panes]]
+id = "dashboard"
+title = "Subscriptions"
+placement = "overlay"
+command = ["python3", "-m", "herdr_subscriptions", "panel"]
