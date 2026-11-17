@@ -136,12 +136,17 @@ class CacheTests(unittest.TestCase):
     def test_claude_reset_snapshot_retains_check_time_and_removes_expired_offers(self):
         storage.write_json(storage.config_dir() / "claude-resets.json", {
             "available": 2, "checked_at": 100,
-            "items": [{"label": "Full reset", "expires_at": 110}, {"label": "Model reset", "expires_at": 210}]})
+            "items": [{"label": "Full reset", "kind": "full", "expires_at": 110}, {"label": "Fable reset", "kind": "fable", "expires_at": 210}]})
         value = storage.claude_resets(now=150)
         self.assertEqual(value["available"], 1)
         self.assertEqual(value["checked_at"], 100)
         self.assertEqual(value["source"], "usage-page")
         self.assertEqual(value["expires_at"], [210])
+        self.assertEqual(value["by_type"], {"full": 0, "fable": 1, "five_hour": 0, "weekly": 0})
+        sub = {"provider": "claude", "label": "Claude", "fetched_at": 150, "resets": value, "limits": []}
+        self.assertIn("  Saved resets*: Full 0 · Fable 1", render.dashboard({"subscriptions": [sub]}, 150))
+        storage.write_json(storage.config_dir() / "claude-resets.json", {"available": 1, "checked_at": 100})
+        self.assertNotIn("by_type", storage.claude_resets(now=150))
         storage.write_json(storage.config_dir() / "claude-resets.json", {"available": True, "checked_at": 100})
         self.assertIsNone(storage.claude_resets(now=150))
 
@@ -202,7 +207,12 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(render.extra_budget_left(limit), {"amount": "0", "currency": "EUR"})
         sub = {"provider": "claude", "label": "Claude", "fetched_at": 100, "limits": [limit]}
         rows = render.subscription_rows(sub, 101, compact=True)
-        self.assertIn("Credits €0 left", rows[1])
+        self.assertEqual("Credits €0 left", rows[1])
+        for mode in ({}, {"compact": True}, {"native": True}):
+            self.assertEqual(render.subscription_rows(sub, 101, **mode)[1], "Credits €0 left")
+        with patch.object(storage, "settings", return_value={"stale_seconds": 900}):
+            document = native.section_document({"subscriptions": [sub]}, 101)
+        self.assertIn({"text": "Credits €0 left", "kind": "text"}, document["rows"])
         self.assertIn("Monthly reset: ?", rows[2])
         limit["money_used"]["amount"] = "4"
         self.assertEqual(render.extra_budget_left(limit)["amount"], "6")
@@ -234,7 +244,7 @@ class NativeSectionTests(unittest.TestCase):
 
 class IntegrationTests(unittest.TestCase):
     def test_metadata_moves_with_last_agent_and_clears_previous(self):
-        with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, {"HERDR_PLUGIN_STATE_DIR": temporary}):
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, {"HERDR_PLUGIN_STATE_DIR": temporary, "HERDR_PLUGIN_CONFIG_DIR": temporary + "/config"}):
             storage.write_json(storage.session_dir() / "published.json", {"kind": "pane", "target": "w1:p-old"})
             with patch.object(herdr, "agents", return_value=[{"pane_id": "w1:p-new", "agent_status": "idle"}]), patch.object(herdr, "agent_sort", return_value="priority"), patch.object(herdr, "patch") as write:
                 herdr.publish(demo())

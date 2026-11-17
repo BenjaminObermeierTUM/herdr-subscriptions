@@ -133,32 +133,26 @@ def subscription_rows(subscription, now, *, columns=23, cells=6, stale_seconds=9
         used = limit.get("used_percent")
         reset = limit.get("resets_at")
         pending = reset is not None and reset <= now
+        if limit.get("key") == "extra":
+            left = extra_budget_left(limit)
+            rows.append("Credits disabled" if limit.get("enabled") is False
+                        else f"Credits {amount(left) if left else '?'} left")
+            rows.append(reset_line(reset, now) if reset else "  Monthly reset: ?")
+            continue
         prefix = "? " if stale or pending or used is None else "! " if used >= 95 else "~ " if used >= 80 else ""
         label = clip(limit.get("label", "Limit"), 7)
         value = "?" if used is None or pending else f"{used:g}%"
         branch = "├ " if index in shared else ""
         rows.append(f"{prefix}{branch}{label} {bar(None if pending else used, cells)} {value}")
-        if limit.get("key") == "extra" and (compact or native):
-            left = extra_budget_left(limit)
-            rows[-1] = f"{prefix}Credits {amount(left) if left else '?'} left"
-            rows.append(reset_line(reset, now) if reset else "  Monthly reset: ?")
-            if limit.get("enabled") is False:
-                rows[-2] = "Credits disabled"
-            continue
-        if limit.get("key") == "extra":
-            detail = f"{amount(limit.get('money_used'))}/{amount(limit.get('money_limit'))}"
-            detail += " · off" if limit.get("enabled") is False else " · reset ?"
-            rows.append("  " + detail)
-        else:
-            if compact and subscription.get("provider") == "codex" and len(limits) == 1 and reset and not pending:
-                # Keep all subscription rows inside Herdr's 16-row ceiling.
-                # The dashboard retains the wide meter and reset countdown.
-                local = datetime.fromtimestamp(round(reset)).astimezone()
-                rows[-1] = f"{prefix}Wk {bar(used, 2)} {value} {local:%d%b%H:%M}"
-            elif index not in shared:
-                rows.append(reset_line(reset, now))
-            elif not any(i > index and round(limits[i]["resets_at"]) == round(reset) for i in shared):
-                rows.append("└ " + reset_line(reset, now).strip())
+        if compact and subscription.get("provider") == "codex" and len(limits) == 1 and reset and not pending:
+            # Keep all subscription rows inside Herdr's 16-row ceiling.
+            # The dashboard retains the wide meter and reset countdown.
+            local = datetime.fromtimestamp(round(reset)).astimezone()
+            rows[-1] = f"{prefix}Wk {bar(used, 2)} {value} {local:%d%b%H:%M}"
+        elif index not in shared:
+            rows.append(reset_line(reset, now))
+        elif not any(i > index and round(limits[i]["resets_at"]) == round(reset) for i in shared):
+            rows.append("└ " + reset_line(reset, now).strip())
     credits = credit_line(subscription)
     if credits:
         rows.append(credits)
@@ -193,6 +187,9 @@ def dashboard(snapshot, now, *, columns=70, stale_seconds=900):
         if resets and resets.get("source") == "usage-page":
             checked = datetime.fromtimestamp(resets["checked_at"]).astimezone()
             rows.append(f"  * Saved resets last checked on Usage page: {checked:%d %b %H:%M %Z}")
+            by_type = resets.get("by_type")
+            if by_type is not None:
+                rows.append(f"  Saved resets*: Full {by_type['full']} · Fable {by_type['fable']}")
             for item in resets.get("items", []):
                 expiration = datetime.fromtimestamp(item["expires_at"]).astimezone()
                 rows.append(f"    {item['label']}: expires {expiration:%d %b %Y %H:%M %Z}")
@@ -204,6 +201,7 @@ def dashboard(snapshot, now, *, columns=70, stale_seconds=900):
                 left = extra_budget_left(limit)
                 if left is not None:
                     rows.append(f"  Extra budget remaining: {amount(left)} of {amount(limit['money_limit'])}")
+                    rows.append(f"  Extra usage spent: {amount(limit.get('money_used'))}")
                 rows.append("  Extra usage: monthly spending cap; renewal date not reported")
                 if limit.get("spend_limit_reached") is False and (limit.get("used_percent") or 0) >= 100:
                     rows.append("  Cap is used; provider's hard-block flag is false")

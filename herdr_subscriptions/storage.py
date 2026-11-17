@@ -107,6 +107,15 @@ def claude_resets(now=None):
         if expiration <= now:
             expired += 1
         else:
-            items.append({"label": text(item.get("label") or "Saved reset", 32), "expires_at": expiration})
-    return {"available": max(0, count - expired), "source": "usage-page", "checked_at": checked,
-            "items": items, "expires_at": sorted(i["expires_at"] for i in items)}
+            saved = {"label": text(item.get("label") or "Saved reset", 32), "expires_at": expiration}
+            if item.get("kind") in ("full", "fable", "five_hour", "weekly"):
+                saved["kind"] = item["kind"]
+            items.append(saved)
+    available = max(0, count - expired)
+    result = {"available": available, "source": "usage-page", "checked_at": checked,
+              "items": items, "expires_at": sorted(i["expires_at"] for i in items)}
+    # Only report absent types as zero when every available offer was classified.
+    if len(items) == available and all("kind" in item for item in items):
+        result["by_type"] = {kind: sum(item["kind"] == kind for item in items)
+                             for kind in ("full", "fable", "five_hour", "weekly")}
+    return result

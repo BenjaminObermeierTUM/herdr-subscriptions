@@ -2,7 +2,7 @@
 
 An independent **Subscriptions** section below Spaces and Agents in Herdr.
 Bold provider headings and vertical spacing separate Claude and Codex. Each
-quota shows usage and its next reset; Credits shows the amount left.
+quota shows usage and its next reset; Credits shows the amount left in a neutral colour.
 
 ![Synthetic preview](docs/sidebar.svg)
 
@@ -115,11 +115,14 @@ an independently checked count in `claude-resets.json` in the plugin config dire
 {
   "available": 1,
   "checked_at": "2030-01-01T12:00:00+00:00",
-  "items": [{"label": "Full reset", "expires_at": "2030-01-15T12:00:00+00:00"}]
+  "items": [{"label": "Full reset", "kind": "full", "expires_at": "2030-01-15T12:00:00+00:00"}]
 }
 ```
 
-The count always carries `*` and its last-check time in the dashboard. Expired
+The count always carries `*` and its last-check time in the dashboard. Classifying
+every offer with `kind` (`full`, `fable`, `five_hour`, or `weekly`) also shows the
+remaining full and Fable counts in the dashboard. Unclassified offers leave that
+breakdown unavailable rather than implying zero. Expired
 offers are removed automatically. A reset redeemed elsewhere requires updating
 this snapshot. The plugin never redeems saved resets.
 
