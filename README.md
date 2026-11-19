@@ -103,6 +103,7 @@ Find the directory with `herdr plugin config-dir subscriptions`. Optional `confi
 {
   "providers": ["codex", "claude"],
   "refresh_seconds": 60,
+  "reset_refresh_seconds": 86400,
   "stale_seconds": 900,
   "sidebar_mode": "section"
 }
@@ -124,7 +125,8 @@ Open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**
 and select the printed `browser` directory. Chrome uses its signed-in session
 to request the workspace Usage JSON. The helper opens no tab. Chrome must be
 running for this check. The monitor checks once on first use, then once every
-24 hours. When a Claude quota first reaches 100%, the Herdr updater wakes the
+24 hours by default. Set `reset_refresh_seconds` to any value from 60 to 86400
+and reload the monitor to change that interval. When a Claude quota first reaches 100%, the Herdr updater wakes the
 monitor immediately. It sends one request while that window stays exhausted.
 A crossing observed while Chrome is closed is picked up when it restarts.
 

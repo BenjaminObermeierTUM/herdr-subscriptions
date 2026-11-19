@@ -118,6 +118,7 @@ class ScheduleTests(unittest.TestCase):
     def test_daily_and_threshold_deadlines(self):
         self.assertLess(browser.next_check({}, 0), 1800000000)
         self.assertEqual(browser.next_check({"checked_at": 100}, 100), 86500)
+        self.assertEqual(browser.next_check({"checked_at": 100}, 100, 60), 160)
         self.assertEqual(browser.next_check({"checked_at": 100}, 101), 0)
 
     def test_crossing_once_recovery_and_different_exhausted_window(self):

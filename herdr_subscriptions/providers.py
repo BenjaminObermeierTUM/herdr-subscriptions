@@ -272,7 +272,7 @@ def fetch_codex():
     prior = previous.get("resets") or {}
     checked = prior.get("details_at", 0)
     now = time.time()
-    details = not 0 <= now - checked < 86400 or not checked
+    details = not 0 <= now - checked < storage.settings()["reset_refresh_seconds"] or not checked
     with codex_session() as client:
         sub = codex_usage(client, details=details)
         if not details and exhausted_windows(sub, now) - exhausted_windows(previous, now):

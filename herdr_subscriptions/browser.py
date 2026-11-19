@@ -34,6 +34,7 @@ def install():
         raise ValueError("Claude CLI must be installed to identify the signed-in workspace")
     wrapper = storage.private_dir(storage.config_dir()) / "chrome-host"
     wrapper.write_text("#!/bin/sh\ncd " + shlex.quote(str(PROJECT)) + " || exit 1\n" +
+                       "export HERDR_PLUGIN_CONFIG_DIR=" + shlex.quote(str(storage.config_dir().resolve())) + "\n" +
                        "export HERDR_CLAUDE_CLI=" + shlex.quote(binary) + "\n" +
                        "export HERDR_PLUGIN_STATE_DIR=" + shlex.quote(str(storage.state_dir().resolve())) +
                        "\nexec " + shlex.quote(sys.executable) + " -B -m herdr_subscriptions.browser\n")
@@ -72,11 +73,11 @@ def workspace_id():
         return None
 
 
-def save_inventory(msg, checked_at):
+def save_inventory(msg, checked_at, interval=86400):
     count = msg["available"]
     if count is not None and (type(count) is not int or not 0 <= count <= 100):
         raise ValueError("invalid reset count")
-    record = {"available": count, "source": "chrome-usage", "checked_at": checked_at}
+    record = {"available": count, "source": "chrome-usage", "checked_at": checked_at, "interval": interval}
     if count is None and msg.get("reason") in ("workspace unavailable", "rate limited",
             "check Chrome sign-in and site access", "provider request failed", "inventory unavailable from provider"):
         record["reason"] = msg["reason"]
@@ -111,9 +112,9 @@ def save_inventory(msg, checked_at):
 
 
 
-def next_check(record, requested_at):
+def next_check(record, requested_at, interval=86400):
     checked = record.get("checked_at", 0)
-    return 0 if requested_at > checked else checked + 86400
+    return 0 if requested_at > checked else checked + interval
 
 
 def watch(stream, output):
@@ -129,14 +130,15 @@ def watch(stream, output):
         while True:
             record = storage.read_json(root / "browser-resets.json", {})
             request = storage.read_json(root / "reset-request.json", {}).get("requested_at", 0)
-            due = max(next_check(record, request), record.get("retry_after", 0))
+            interval = storage.settings()["reset_refresh_seconds"]
+            due = max(next_check(record, request, interval), record.get("retry_after", 0))
             now = time.time()
             if due <= now:
                 send(output, {"workspace": workspace_id()})
                 if not select.select([stream], [], [], 25)[0]:
                     return
                 sample = read_message(stream)
-                save_inventory(sample, now)
+                save_inventory(sample, now, interval)
                 continue
             ready, _, _ = select.select([stream, events], [], [], min(due - now, 86400))
             if stream in ready:  # Chrome closed the native port.

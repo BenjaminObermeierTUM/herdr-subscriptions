@@ -23,7 +23,7 @@ def current_count(sub, now):
         if sub.get("error"):
             return None
         checked = sub.get("fetched_at", 0)
-    max_age = 86400 + 90 if sub.get("provider") == "claude" else 90
+    max_age = resets.get("interval", 86400) + 90 if sub.get("provider") == "claude" else 90
     return count if 0 <= now - checked <= max_age else None
 
 

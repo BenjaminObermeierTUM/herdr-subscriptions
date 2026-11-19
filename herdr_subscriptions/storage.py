@@ -69,6 +69,9 @@ def settings():
         raise ValueError("providers must be a list containing codex and/or claude")
     providers = list(dict.fromkeys(providers))
     refresh = value.get("refresh_seconds", 60)
+    reset_refresh = value.get("reset_refresh_seconds", 86400)
+    if type(reset_refresh) is not int or not 60 <= reset_refresh <= 86400:
+        raise ValueError("reset_refresh_seconds must be between 60 and 86400")
     stale = value.get("stale_seconds", 900)
     if not isinstance(refresh, int) or not 30 <= refresh <= 3600:
         raise ValueError("refresh_seconds must be between 30 and 3600")
@@ -77,7 +80,8 @@ def settings():
     mode = value.get("sidebar_mode", "agents")
     if mode not in ("agents", "section"):
         raise ValueError("sidebar_mode must be agents or section")
-    return {"providers": providers, "refresh_seconds": min(refresh, 60), "stale_seconds": stale, "sidebar_mode": mode}
+    return {"providers": providers, "refresh_seconds": min(refresh, 60), "reset_refresh_seconds": reset_refresh,
+            "stale_seconds": stale, "sidebar_mode": mode}
 
 
 def cached():
@@ -96,7 +100,7 @@ def latest_claude_resets():
         checked = record.get("checked_at", 0)
         request = read_json(state_dir() / "reset-request.json", {}).get("requested_at", 0)
         now = time.time()
-        if request <= checked and 0 <= now - checked <= 86490:
+        if request <= checked and 0 <= now - checked <= record.get("interval", 86400) + 90:
             # The daily sample knows its own expirations even while Chrome is closed.
             for grant in record.get("expiring", []):
                 if grant["at"] <= now and record.get("available") is not None:
