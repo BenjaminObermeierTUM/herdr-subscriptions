@@ -13,6 +13,7 @@ import tty
 
 from . import collector, daemon, herdr, storage
 from .render import dashboard, sidebar_rows
+from .resets import confirm_codex, eligible_limit
 
 
 def demo():
@@ -22,7 +23,7 @@ def demo():
          "limits": [{"key": "codex.primary", "label": "Weekly", "used_percent": 72, "resets_at": now + 172800}],
          "credits": {"balance": "1250", "available": True}, "resets": {"available": 2}},
         {"provider": "claude", "label": "Claude", "plan": "team", "fetched_at": now,
-         "resets": {"available": 1, "source": "usage-page", "checked_at": now,
+         "resets": {"available": 1, "source": "chrome-usage", "checked_at": now, "usable": ["full"], "offers": ["full"],
                     "items": [{"label": "Full reset", "expires_at": now + 604800}], "expires_at": [now + 604800]},
          "limits": [{"key": "session", "label": "5h", "used_percent": 85, "resets_at": now + 5400},
                     {"key": "weekly", "label": "Weekly", "window_minutes": 10080, "used_percent": 32, "resets_at": now + 86400},
@@ -60,6 +61,19 @@ def panel(use_demo=False):
                     break
                 if key in (b"r", b"R") and not use_demo:
                     daemon.request_refresh()
+                if not use_demo and key in (b"c", b"a"):
+                    provider = "codex" if key == b"c" else "claude"
+                    sub = next((s for s in storage.cached()["subscriptions"] if s["provider"] == provider), {})
+                    if eligible_limit(sub, time.time()):
+                        if provider == "claude":
+                            import webbrowser
+                            webbrowser.open("https://claude.ai/new#settings/usage")
+                        else:
+                            termios.tcsetattr(fd, termios.TCSADRAIN, previous)
+                            sys.stdout.write("\x1b[?25h\n")
+                            confirm_codex()
+                            tty.setcbreak(fd)
+                            sys.stdout.write("\x1b[?25l")
                 if key in (b"j", b"\x1b[B"):
                     offset += 1
                 if key in (b"k", b"\x1b[A"):
@@ -71,8 +85,8 @@ def panel(use_demo=False):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Read-only subscription quotas for Herdr")
-    parser.add_argument("command", choices=["status", "refresh", "start", "stop", "worker", "publish", "request-refresh", "panel", "open", "setup", "unsetup", "diagnostics", "section-path"], nargs="?", default="status")
+    parser = argparse.ArgumentParser(description="Subscription quotas and saved resets for Herdr")
+    parser.add_argument("command", choices=["status", "refresh", "start", "stop", "worker", "publish", "request-refresh", "panel", "open", "setup", "unsetup", "diagnostics", "section-path", "browser-setup", "reset-codex"], nargs="?", default="status")
     parser.add_argument("--json", action="store_true", help="print normalized metadata only")
     parser.add_argument("--demo", action="store_true", help="use synthetic data; never reads accounts")
     parser.add_argument("--sidebar", action="store_true", help="preview compact sidebar rows")
@@ -80,7 +94,12 @@ def main(argv=None):
     parser.add_argument("--apply", action="store_true", help="apply the previewed sidebar config, backing it up first")
     args = parser.parse_args(argv)
     try:
-        if args.command == "section-path":
+        if args.command == "browser-setup":
+            from .browser import install
+            install()
+        elif args.command == "reset-codex":
+            confirm_codex()
+        elif args.command == "section-path":
             print(storage.state_dir() / "section.json")
         elif args.command in ("status", "refresh"):
             snapshot = demo() if args.demo else collector.refresh(force=True) if args.command == "refresh" else storage.cached()

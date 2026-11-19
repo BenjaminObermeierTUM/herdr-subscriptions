@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import tempfile
+import time
 from pathlib import Path
 
 
@@ -32,8 +33,11 @@ def private_dir(path):
     return path
 
 
-def write_json(path, value):
-    private_dir(path.parent)
+def write_json(path, value, *, private_parent=True):
+    if private_parent:
+        private_dir(path.parent)
+    else:
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=".subscriptions-", dir=path.parent)
     try:
         with os.fdopen(fd, "w") as stream:
@@ -64,7 +68,7 @@ def settings():
     if not isinstance(providers, list) or any(p not in ("codex", "claude") for p in providers):
         raise ValueError("providers must be a list containing codex and/or claude")
     providers = list(dict.fromkeys(providers))
-    refresh = value.get("refresh_seconds", 300)
+    refresh = value.get("refresh_seconds", 60)
     stale = value.get("stale_seconds", 900)
     if not isinstance(refresh, int) or not 30 <= refresh <= 3600:
         raise ValueError("refresh_seconds must be between 30 and 3600")
@@ -73,12 +77,41 @@ def settings():
     mode = value.get("sidebar_mode", "agents")
     if mode not in ("agents", "section"):
         raise ValueError("sidebar_mode must be agents or section")
-    return {"providers": providers, "refresh_seconds": refresh, "stale_seconds": stale, "sidebar_mode": mode}
+    return {"providers": providers, "refresh_seconds": min(refresh, 60), "stale_seconds": stale, "sidebar_mode": mode}
 
 
 def cached():
     value = read_json(state_dir() / "usage.json", {"schema": 1, "subscriptions": []})
-    return value if isinstance(value, dict) and isinstance(value.get("subscriptions"), list) else {"schema": 1, "subscriptions": []}
+    if not isinstance(value, dict) or not isinstance(value.get("subscriptions"), list):
+        return {"schema": 1, "subscriptions": []}
+    for sub in value["subscriptions"]:
+        if sub["provider"] == "claude":
+            sub["resets"] = latest_claude_resets()
+    return value
+
+
+def latest_claude_resets():
+    record = read_json(state_dir() / "browser-resets.json", None)
+    if isinstance(record, dict) and record.get("source") == "chrome-usage":
+        checked = record.get("checked_at", 0)
+        request = read_json(state_dir() / "reset-request.json", {}).get("requested_at", 0)
+        now = time.time()
+        if request <= checked and 0 <= now - checked <= 86490:
+            # The daily sample knows its own expirations even while Chrome is closed.
+            for grant in record.get("expiring", []):
+                if grant["at"] <= now and record.get("available") is not None:
+                    record["available"] = max(0, record["available"] - grant["count"])
+                    for _ in range(grant["count"]):
+                        if grant["kind"] in record["offers"]:
+                            record["offers"].remove(grant["kind"])
+                    if grant["usable"] and grant["kind"] in record["usable"]:
+                        record["usable"].remove(grant["kind"])
+            return record
+    else:
+        record = claude_resets()
+    if record:
+        return {**record, "last_known_available": record.get("available"), "available": None}
+    return None
 
 
 def claude_resets(now=None):

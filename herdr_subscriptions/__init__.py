@@ -1,3 +1,3 @@
-"""Read-only Claude and Codex subscription meters for Herdr."""
+"""Claude and Codex subscription meters for Herdr."""
 
-__version__ = "0.2.2"
+__version__ = "0.3.0"

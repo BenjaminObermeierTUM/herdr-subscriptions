@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
 import math
 import os
@@ -233,25 +234,56 @@ def normalize_claude(response):
     return result
 
 
-def fetch_codex():
+@contextmanager
+def codex_session():
     binary = shutil.which("codex")
     if not binary:
         raise ProviderError("Codex CLI not installed")
     with JsonProcess([binary, "app-server", "--listen", "stdio://"]) as client:
         client.send({"id": 1, "method": "initialize", "params": {
-            "clientInfo": {"name": "herdr_subscriptions", "version": "0.2.2"}}})
+            "clientInfo": {"name": "herdr_subscriptions", "version": "0.3.0"}}})
         if client.receive(lambda o: o.get("id") == 1).get("error"):
             raise ProviderError("Codex initialization failed")
         client.send({"method": "initialized", "params": {}})
-        client.send({"id": 2, "method": "account/rateLimits/read", "params": {}})
-        reply = client.receive(lambda o: o.get("id") == 2)
-        if "error" in reply:
-            raise ProviderError("usage unavailable; check Codex sign-in")
-        # The quota response normally already includes planType. Avoid another request.
-        result = normalize_codex(reply.get("result") or {})
-        if not result["limits"] and result["credits"] is None:
-            raise ProviderError("Codex returned no subscription usage")
-        return result
+        yield client
+
+
+def codex_usage(client, request_id=2, *, details=True):
+    client.deadline = time.monotonic() + 25
+    params = {} if details else {"excludeResetCreditDetails": True}
+    client.send({"id": request_id, "method": "account/rateLimits/read", "params": params})
+    reply = client.receive(lambda o: o.get("id") == request_id)
+    if "error" in reply:
+        raise ProviderError("usage unavailable; check Codex sign-in")
+    # The quota response normally already includes planType. Avoid another request.
+    response = reply.get("result") or {}
+    # Only the interactive confirmation compares account identity, in memory.
+    client.usage_account = response.get("accountId")
+    result = normalize_codex(response)
+    if not result["limits"] and result["credits"] is None:
+        raise ProviderError("Codex returned no subscription usage")
+    return result
+
+
+def fetch_codex():
+    from . import storage
+    from .collector import exhausted_windows
+    previous = next((s for s in storage.cached()["subscriptions"] if s["provider"] == "codex"), {})
+    prior = previous.get("resets") or {}
+    checked = prior.get("details_at", 0)
+    now = time.time()
+    details = not 0 <= now - checked < 86400 or not checked
+    with codex_session() as client:
+        sub = codex_usage(client, details=details)
+        if not details and exhausted_windows(sub, now) - exhausted_windows(previous, now):
+            sub = codex_usage(client, request_id=3)
+            details = True
+        inventory = sub.get("resets")
+        if inventory is not None:
+            inventory["details_at"] = now if details else checked
+            if not details and prior.get("available") == inventory["available"] and previous.get("plan") == sub["plan"]:
+                inventory["expires_at"] = [t for t in prior.get("expires_at", []) if t > now]
+        return sub
 
 
 def fetch_claude():
@@ -270,10 +302,7 @@ def fetch_claude():
                 raise ProviderError("Claude usage protocol unavailable; check CLI/sign-in")
             return reply.get("response") or {}
         request("subscriptions-init", {"subtype": "initialize"})
-        result = normalize_claude(request("subscriptions-usage", {"subtype": "get_usage", "skip_behaviors": True}))
-        from .storage import claude_resets
-        result["resets"] = claude_resets()
-        return result
+        return normalize_claude(request("subscriptions-usage", {"subtype": "get_usage", "skip_behaviors": True}))
 
 
 FETCHERS = {"codex": fetch_codex, "claude": fetch_claude}

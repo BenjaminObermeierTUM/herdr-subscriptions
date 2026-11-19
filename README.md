@@ -52,7 +52,7 @@ no new server messages, API methods, or wire-format fields. See
 - Codex's remaining usage-credit balance and saved-reset count.
 - Claude's `Credits €X`. This represents remaining monthly extra-usage spending
   headroom; exact spending/cap and renewal details are in the dashboard.
-- Claude saved resets as an explicitly **last checked** Usage-page snapshot when supplied.
+- Claude saved-reset inventory from the signed-in Usage page when the Chrome monitor is enabled.
 
 Higher quota percentages mean more **used**. A passed reset time is marked
 pending until a fresh vendor report arrives. Missing credit-renewal dates are
@@ -60,10 +60,7 @@ described as unavailable in the dashboard; the plugin never invents a billing
 date or treats missing data as zero. Claude's CLI does not currently return its
 credit renewal date.
 
-The sidebar shows one total `Resets` count for each subscription. Claude's total
-comes from an explicitly last-checked Usage-page snapshot; its check time, full
-and Fable breakdown, and expirations remain in the dashboard. Unknown counts
-show `?`. Saved resets are separate from ordinary five-hour/weekly quota
+The sidebar shows one total `Resets` count for each subscription. The dashboard shows when Claude Usage was checked and which offers the page reported. An unavailable check or an overdue daily Claude reading shows `?`. Saved resets are separate from ordinary five-hour/weekly quota
 refreshes and have no guaranteed weekly or monthly replenishment schedule.
 
 ## Dashboard and refresh
@@ -72,7 +69,7 @@ Press **Ctrl+B, then U** (`prefix+u`) for the full dashboard. It opens as a temp
 overlay and restores the underlying pane. Use `r` to refresh, arrows or `j`/`k` to
 scroll and `q` to close. The plugin action menu also offers refresh and stop.
 
-Vendor metadata refreshes every five minutes and just after the next reported
+Vendor metadata refreshes every minute and just after the next reported
 quota reset, with a 25-second deadline per provider. Placement/feed/countdowns
 update every five seconds. Provider failures preserve last-good values marked
 stale, without discarding the other provider. The native section dims stale feeds.
@@ -105,7 +102,7 @@ Find the directory with `herdr plugin config-dir subscriptions`. Optional `confi
 ```json
 {
   "providers": ["codex", "claude"],
-  "refresh_seconds": 300,
+  "refresh_seconds": 60,
   "stale_seconds": 900,
   "sidebar_mode": "section"
 }
@@ -115,25 +112,53 @@ The launcher sets `section` automatically. The fallback setup sets `agents`.
 This version reads each CLI's default signed-in account; multiple account
 profiles within the same provider are not yet supported.
 
-### Claude saved-reset snapshot
+### Enable Claude reset monitoring
 
-Claude's CLI does not currently expose saved-reset availability. You may record
-an independently checked count in `claude-resets.json` in the plugin config directory:
+Sign in to Claude in Chrome with access to the workspace used by your CLI. From your permanent plugin checkout run:
 
-```json
-{
-  "available": 1,
-  "checked_at": "2030-01-01T12:00:00+00:00",
-  "items": [{"label": "Full reset", "kind": "full", "expires_at": "2030-01-15T12:00:00+00:00"}]
-}
+```sh
+python3 -m herdr_subscriptions browser-setup
 ```
 
-The dashboard marks the count with `*` and shows its last-check time. Classifying
-every offer with `kind` (`full`, `fable`, `five_hour`, or `weekly`) also shows the
-remaining full and Fable counts in the dashboard. Unclassified offers leave that
-breakdown unavailable rather than implying zero. Expired
-offers are removed automatically. A reset redeemed elsewhere requires updating
-this snapshot. The plugin never redeems saved resets.
+Open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**
+and select the printed `browser` directory. Chrome uses its signed-in session
+to request the workspace Usage JSON. The helper opens no tab. Chrome must be
+running for this check. The monitor checks once on first use, then once every
+24 hours. When a Claude quota first reaches 100%, the Herdr updater wakes the
+monitor immediately. It sends one request while that window stays exhausted.
+A crossing observed while Chrome is closed is picked up when it restarts.
+
+Quota percentages are sampled every 60 seconds by default, or every 30–60
+seconds if configured. Previously configured longer intervals are capped at
+60 seconds. The monthly spending cap does not trigger a reset lookup. Codex
+returns its balance with those ordinary quota samples. Detailed Codex reset
+metadata is requested once a day or on a newly exhausted quota.
+
+The local Chrome messaging host sleeps on a private event pipe between checks.
+It queries the CLI for the active workspace only when an inventory check is due.
+Missing or unrecognized provider data displays `?`. Historical manual entries
+remain dated in the dashboard. The signed-in web endpoint is undocumented;
+provider rate limits and loss of sign-in can delay a check.
+
+### Use a saved reset
+
+When a covered usage limit reaches 100% and a saved reset is available, the
+independent sidebar displays an action under that provider.
+
+- **Codex:** Click **Use a saved reset**, review the limit in the overlay, then
+  enter `y` to use one banked reset. Enter cancels by default. The plugin rereads
+  the account and limit before submitting and refreshes after the result. On a
+  remote Herdr endpoint the button opens Codex Usage in the local browser.
+- **Claude:** Click **Open Claude reset offers**, choose **Reset for free** on
+  the matching offer, and confirm in Claude. The action requires both the
+  browser and CLI to show an exhausted covered limit and the Usage page to
+  show an enabled offer. The monthly spending cap is excluded.
+- **Stock Herdr:** Open the dashboard with **Ctrl+B, then U**. Eligible actions
+  also appear there (`c` for Codex, `a` for Claude).
+
+After upgrading, rebuild the companion client, detach the old client and relaunch
+`bin/herdr-with-subscriptions` to enable mouse actions. Old clients can display
+updated text but do not handle clicks.
 
 ## Useful commands
 
@@ -153,31 +178,31 @@ To uninstall, detach the companion client, run `unsetup --apply`, uninstall the
 plugin with `herdr plugin uninstall subscriptions`, and reattach with stock Herdr.
 Setup/unsetup edits only its marked block and keeps a private backup first.
 
-## Privacy and read-only behavior
+## Data access
 
-The plugin sends no model prompts, creates no agent tasks, redeems no resets,
-buys no credits and changes no subscription. It queries the installed clients:
+The background worker queries the signed-in CLIs for usage metadata. Codex uses
+`account/rateLimits/read`. Claude uses `get_usage` with `skip_behaviors` in
+safe mode, with tools, hooks, MCP servers and session persistence disabled.
 
-- Codex: app-server initialization and `account/rateLimits/read` over stdio.
-- Claude: safe-mode initialization and experimental `get_usage` with `skip_behaviors`.
-  Hooks, MCP servers, tools, project settings and session persistence are disabled.
+The optional Chrome monitor requests the workspace Usage JSON on claude.ai.
+Chrome handles sign-in. The monitor passes counts, offer types, expirations
+and exhausted window names to a local native
+messaging host. Account data stays in the private plugin state directory.
+To remove the monitor, remove it at `chrome://extensions` and delete `dev.herdr.subscriptions.json` from Chrome's user
+`NativeMessagingHosts` directory.
 
-It does not directly read credential files, Keychain entries, browser cookies,
-prompts, replies or conversation logs. The vendor clients handle their own
-normal authentication. Only allowlisted quota, plan, spend and reset metadata is
-cached privately outside the repository. Raw responses, account identifiers,
-redemption IDs and exception details are not retained. There is no telemetry.
-
-The Claude control protocol is experimental. Failures stay explicit and do not
-trigger credential scraping. Vendor clients can initialize their own normal
-state while answering metadata queries. Official billing dashboards remain the
-authority for account balances and charges.
+An interactive, confirmed Codex reset uses `account/rateLimitResetCredit/consume`.
+A private idempotency key identifies retries for the same account and window.
+Polling never initiates a redemption. Claude handles its own confirmation.
+Official guidance: [Claude limit resets](https://support.claude.com/en/articles/17007452-what-is-a-limit-reset)
+and [Codex banked resets](https://help.openai.com/en/articles/20001498-how-resets-work-in-codex).
 
 ## Development
 
 ```sh
 python3 -m unittest discover -s tests -v
 python3 -m compileall -q herdr_subscriptions scripts
+node --test tests/browser-usage.test.js
 ```
 
 Tests use synthetic metadata and fake provider clients. The companion patch was

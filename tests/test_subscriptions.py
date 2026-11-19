@@ -207,7 +207,7 @@ class RenderTests(unittest.TestCase):
                  "money_limit": {"amount": "10", "currency": "EUR"}, "enabled": True}
         self.assertEqual(render.extra_budget_left(limit), {"amount": "0", "currency": "EUR"})
         sub = {"provider": "claude", "label": "Claude", "fetched_at": 100, "limits": [limit]}
-        sub["resets"] = {"available": 1}
+        sub["resets"] = {"available": 1, "source": "chrome-usage", "checked_at": 100}
         self.assertEqual(render.subscription_rows(sub, 101, compact=True)[1], "€0 · 1 resets")
         for mode in ({}, {"native": True}):
             self.assertEqual(render.subscription_rows(sub, 101, **mode)[1:], ["Credits €0", "Resets 1"])

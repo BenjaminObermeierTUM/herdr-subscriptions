@@ -8,6 +8,7 @@ import math
 import unicodedata
 
 from .providers import text
+from .resets import current_count, eligible_limit
 
 SIDEBAR_ROWS = 14
 # Herdr hides whitespace-only metadata. A blank Braille cell keeps a gap row.
@@ -104,9 +105,9 @@ def credit_value(subscription):
     return "available" if credits.get("available") else "?"
 
 
-def balance_rows(subscription, *, compact=False):
+def balance_rows(subscription, now, *, compact=False):
     credits = credit_value(subscription)
-    count = (subscription.get("resets") or {}).get("available")
+    count = current_count(subscription, now)
     resets = str(count) if count is not None else "?"
     if compact:
         unit = "cr" if subscription.get("provider") == "codex" and credits[:1].isdigit() else ""
@@ -155,7 +156,7 @@ def subscription_rows(subscription, now, *, columns=23, cells=6, stale_seconds=9
             rows.append(reset_line(reset, now))
         elif not any(i > index and round(limits[i]["resets_at"]) == round(reset) for i in shared):
             rows.append("└ " + reset_line(reset, now).strip())
-    rows.extend(balance_rows(subscription, compact=compact))
+    rows.extend(balance_rows(subscription, now, compact=compact))
     return [clip(r, columns) for r in rows]
 
 
@@ -182,8 +183,19 @@ def dashboard(snapshot, now, *, columns=70, stale_seconds=900):
         if credits and credits.get("balance") is not None:
             rows.append(f"  Credit balance: {credits['balance']} credits (not currency)")
         resets = subscription.get("resets")
-        if subscription.get("provider") == "claude" and (not resets or resets.get("available") is None):
-            rows.append("  Saved resets: unavailable from Claude CLI; check Settings > Usage")
+        if subscription["provider"] == "claude":
+            if current_count(subscription, now) is None:
+                reason = (resets or {}).get("reason", "check the Claude Usage monitor")
+                rows.append("  Reset count unavailable: " + reason)
+            if resets and resets.get("source") == "chrome-usage":
+                checked = datetime.fromtimestamp(resets["checked_at"]).astimezone()
+                rows.append(f"  Claude Usage checked {checked:%d %b %H:%M:%S %Z}")
+                for offer in resets.get("offers", []):
+                    rows.append("    " + offer.replace("_", " ").title() + " reset")
+                for expiry in resets.get("expirations", []):
+                    rows.append("    Expires " + expiry)
+        if eligible_limit(subscription, now):
+            rows.append("  " + ("c  Use a Codex reset" if subscription["provider"] == "codex" else "a  Open Claude reset offers"))
         if resets and resets.get("source") == "usage-page":
             checked = datetime.fromtimestamp(resets["checked_at"]).astimezone()
             rows.append(f"  * Saved resets last checked on Usage page: {checked:%d %b %H:%M %Z}")
@@ -211,5 +223,5 @@ def dashboard(snapshot, now, *, columns=70, stale_seconds=900):
         rows.append("")
     if not snapshot.get("subscriptions"):
         rows.append("Loading usage…")
-    rows.extend(["r refresh · ↑/↓ scroll · q close", "Read-only: never redeems resets, buys credits, or sends prompts."])
+    rows.extend(["r refresh · ↑/↓ scroll · q close", "Saved resets are used only after confirmation."])
     return [clip(row, columns) for row in rows]

@@ -137,7 +137,6 @@ def worker():
                     future = None
                     next_poll = 0
                     snapshot = storage.cached()
-                    next_fetch = now + storage.settings()["refresh_seconds"]
                     for sub in snapshot["subscriptions"]:
                         for limit in sub.get("limits", []):
                             reset = limit.get("resets_at")
@@ -145,6 +144,7 @@ def worker():
                                 next_fetch = min(next_fetch, reset + 2)
                 if future is None and (force or now >= next_fetch):
                     (root / "refresh").unlink(missing_ok=True)
+                    next_fetch = now + storage.settings()["refresh_seconds"]
                     future = executor.submit(collector.refresh, force=True)
                 if now >= next_poll:
                     try:
@@ -155,7 +155,7 @@ def worker():
                         if errors >= 10:
                             break  # Session stopped; do not leave an orphan updater.
                     next_poll = now + 5
-                time.sleep(1)
+                time.sleep(min(1, max(0.01, next_fetch - time.time())) if future is None else 1)
         finally:
             executor.shutdown(wait=True)
             try:

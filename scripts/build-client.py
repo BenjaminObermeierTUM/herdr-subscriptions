@@ -8,6 +8,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 
 PROJECT = Path(__file__).resolve().parent.parent
 BASE = "2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01"
@@ -24,7 +25,8 @@ def main():
     parser.add_argument("--source", type=Path, help="use an existing dedicated Herdr 0.9.5 source checkout")
     parser.add_argument("--check-only", action="store_true", help="verify the pinned source and patch without building")
     args = parser.parse_args()
-    source = (args.source or PROJECT / ".local/herdr-v0.9.5").resolve()
+    patch_hash = hashlib.sha256(PATCH.read_bytes()).hexdigest()
+    source = (args.source or PROJECT / ".local" / f"herdr-v0.9.5-{patch_hash[:10]}").resolve()
     if not source.exists():
         source.parent.mkdir(parents=True, exist_ok=True)
         run(["git", "clone", "--depth", "1", "--branch", "v0.9.5", UPSTREAM, str(source)], PROJECT)
@@ -46,9 +48,13 @@ def main():
     run(["cargo", "build", "--locked", "--release"], source)
     destination = PROJECT / "native/bin/herdr"
     destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(source / "target/release/herdr", destination)
-    destination.chmod(0o755)
-    manifest = {"base_commit": BASE, "patch_sha256": hashlib.sha256(PATCH.read_bytes()).hexdigest(),
+    target = source / os.environ.get("CARGO_TARGET_DIR", "target")
+    with tempfile.TemporaryDirectory(dir=destination.parent) as stage:
+        built = Path(stage) / "herdr"
+        shutil.copy2(target / "release/herdr", built)
+        built.chmod(0o755)
+        os.replace(built, destination)
+    manifest = {"base_commit": BASE, "patch_sha256": patch_hash,
                 "client_sha256": hashlib.sha256(destination.read_bytes()).hexdigest()}
     (destination.parent / "build.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"Client ready: {destination}\nStart with: {PROJECT / 'bin/herdr-with-subscriptions'}")

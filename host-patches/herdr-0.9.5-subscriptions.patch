@@ -81,7 +81,7 @@ index 9698248..bc8716d 100644
      put_text(
          buffer,
 diff --git a/src/client/shell/mouse.rs b/src/client/shell/mouse.rs
-index 8e873d6..498d3fd 100644
+index 8e873d6..f35602f 100644
 --- a/src/client/shell/mouse.rs
 +++ b/src/client/shell/mouse.rs
 @@ -1895,6 +1895,17 @@ impl ClientShellState {
@@ -102,6 +102,48 @@ index 8e873d6..498d3fd 100644
              MouseEventKind::ScrollUp if super::contains(self.hits.agent_body, point) => {
                  let next = self.agent_scroll.saturating_sub(1);
                  if next != self.agent_scroll {
+@@ -1950,6 +1961,41 @@ impl ClientShellState {
+                     self.persist_chrome_preferences(outcome);
+                     return;
+                 }
++                if let Some(provider) = self.subscription_section.reset_at(
++                    self.hits.subscription_area,
++                    self.subscription_scroll,
++                    point,
++                ) {
++                    if provider == "codex" && self.active_endpoint_id.is_local() {
++                        use crate::api::schema::{Method, PluginPaneOpenParams};
++                        self.push_endpoint_method(
++                            Method::PluginPaneOpen(PluginPaneOpenParams {
++                                plugin_id: "subscriptions".into(),
++                                entrypoint: "codex-reset".into(),
++                                placement: None,
++                                width: None,
++                                height: None,
++                                workspace_id: None,
++                                target_pane_id: None,
++                                direction: None,
++                                cwd: None,
++                                focus: true,
++                                env: Default::default(),
++                            }),
++                            outcome,
++                        );
++                    } else {
++                        let url = if provider == "claude" {
++                            "https://claude.ai/new#settings/usage"
++                        } else {
++                            "https://chatgpt.com/codex/settings/usage"
++                        };
++                        outcome
++                            .actions
++                            .push(super::ClientShellAction::OpenSafeWebUrl(url.into()));
++                    }
++                    return;
++                }
+                 if super::contains(self.hits.sidebar_divider, point) {
+                     let now = std::time::Instant::now();
+                     let double_click = self.last_sidebar_divider_click.is_some_and(|last| {
 diff --git a/src/client/shell/render.rs b/src/client/shell/render.rs
 index 248216c..4968803 100644
 --- a/src/client/shell/render.rs
@@ -187,10 +229,10 @@ index 5a73292..9619709 100644
              snapshot: None,
 diff --git a/src/client/shell/subscription_section.rs b/src/client/shell/subscription_section.rs
 new file mode 100644
-index 0000000..c66670c
+index 0000000..6b27ef2
 --- /dev/null
 +++ b/src/client/shell/subscription_section.rs
-@@ -0,0 +1,341 @@
+@@ -0,0 +1,383 @@
 +//! Optional, client-owned sidebar section fed by a local plugin JSON file.
 +//! The server protocol and agent/workspace metadata are deliberately unchanged.
 +use std::path::PathBuf;
@@ -300,6 +342,29 @@ index 0000000..c66670c
 +        changed || self.stale != old_stale
 +    }
 +
++    pub(super) fn reset_at(&self, area: Rect, scroll: usize, point: (u16, u16)) -> Option<&str> {
++        let doc = self.document.as_ref()?;
++        if self.stale
++            || !super::contains(area, point)
++            || point.0 <= area.x
++            || point.0 >= area.right().saturating_sub(1)
++        {
++            return None;
++        }
++        let y = point.1.checked_sub(area.y + 2)?;
++        let height = usize::from(area.height.saturating_sub(2));
++        let index = scroll.min(doc.rows.len().saturating_sub(height)) + usize::from(y);
++        let row = doc.rows.get(index)?;
++        if usize::from(point.0 - area.x - 1) >= row.text.len() {
++            return None;
++        }
++        match row.kind.as_str() {
++            "reset_codex" => Some("codex"),
++            "reset_claude" => Some("claude"),
++            _ => None,
++        }
++    }
++
 +    pub(super) fn areas(&self, area: Rect) -> (Rect, Rect) {
 +        let Some(document) = self.document.as_ref() else {
 +            return (area, Rect::default());
@@ -367,6 +432,9 @@ index 0000000..c66670c
 +                "claude" => Style::default()
 +                    .fg(palette.mauve)
 +                    .add_modifier(Modifier::BOLD),
++                "reset_codex" | "reset_claude" if !self.stale => Style::default()
++                    .fg(palette.accent)
++                    .add_modifier(Modifier::UNDERLINED | Modifier::BOLD),
 +                "critical" => Style::default()
 +                    .fg(palette.red)
 +                    .add_modifier(Modifier::BOLD),
@@ -416,6 +484,22 @@ index 0000000..c66670c
 +            }),
 +            ..SubscriptionSection::default()
 +        }
++    }
++
++    #[test]
++    fn reset_hit_matches_the_visible_scrolled_button() {
++        let mut section = section(6);
++        section.document.as_mut().unwrap().rows[4] = Row {
++            text: "[Use reset]".into(),
++            kind: "reset_codex".into(),
++        };
++        let area = Rect::new(0, 10, 25, 5);
++        assert_eq!(section.reset_at(area, 999, (2, 13)), Some("codex"));
++        for point in [(2, 11), (2, 14), (20, 13), (0, 13)] {
++            assert_eq!(section.reset_at(area, 999, point), None);
++        }
++        section.stale = true;
++        assert_eq!(section.reset_at(area, 999, (2, 13)), None);
 +    }
 +
 +    #[test]

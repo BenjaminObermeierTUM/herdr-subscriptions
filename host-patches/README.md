@@ -7,7 +7,7 @@ https://github.com/herdrdev/herdr/tree/2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01
 `herdr-0.9.5-subscriptions.patch` adds a client-local section below Spaces and
 Agents. The client polls the file named by `HERDR_SUBSCRIPTIONS_FILE` once per
 second. Rendering uses an already-decoded, bounded cache, never filesystem IO.
-The section has its own scroll target and does not participate in agent selection.
+Fresh reset rows handle left clicks. A local Codex click opens the registered confirmation pane. Claude and remote Codex clicks open their fixed provider Usage URLs. The section has its own scroll target and does not participate in agent selection.
 A missing setting leaves the original layout unchanged. Small windows preserve
 room for native lists and allow independent wheel scrolling in Subscriptions.
 
@@ -23,7 +23,7 @@ a custom client extension; no upstream contribution or endorsement is implied.
 Validation on macOS arm64:
 
 - Cargo check against the pinned source.
-- Eight section-specific tests, including independent rendering with no agents,
+- Nine section-specific tests, including independent rendering with no agents,
   short-window geometry, and malformed/oversized feed handling.
 - Herdr client UI suite: **388 passed, 2 ignored**.
 - Python provider, privacy, cache, setup and rendering tests in this repository.

@@ -1,6 +1,6 @@
 id = "subscriptions"
 name = "Subscriptions"
-version = "0.2.2"
+version = "0.3.0"
 min_herdr_version = "0.9.5"
 description = "An independent Subscriptions section for Claude and Codex limits, credits and saved resets, with an optional companion Herdr client."
 platforms = ["macos", "linux"]
@@ -38,3 +38,9 @@ id = "dashboard"
 title = "Subscriptions"
 placement = "overlay"
 command = ["python3", "-m", "herdr_subscriptions", "panel"]
+
+[[panes]]
+id = "codex-reset"
+title = "Use a Codex reset"
+placement = "overlay"
+command = ["python3", "-m", "herdr_subscriptions", "reset-codex"]
