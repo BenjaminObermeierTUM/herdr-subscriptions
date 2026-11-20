@@ -40,6 +40,23 @@ workaround, preserves the dashboard shortcut, starts the quota updater and
 attaches the companion client. Detaching keeps the server and agents running.
 Use this launcher whenever you want the independent section.
 
+To start the companion with either `herdr` or `herder` from a fresh zsh
+terminal, add this to `~/.zshrc`. Adjust the launcher path if you cloned the
+repository outside `~/herdr-subscriptions`.
+
+```zsh
+herdr() {
+  if (( $# == 0 )) && [[ ${HERDR_ENV:-} != 1 ]]; then
+    "$HOME/herdr-subscriptions/bin/herdr-with-subscriptions"
+  else
+    command herdr "$@"
+  fi
+}
+alias herder=herdr
+```
+
+Both spellings forward subcommands such as `herdr status` to the stock CLI.
+
 The native section is client-only. It reads a private local JSON feed; there are
 no new server messages, API methods, or wire-format fields. See
 [the client patch notes](host-patches/README.md) for the exact base and validation.

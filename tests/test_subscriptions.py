@@ -11,7 +11,7 @@ from datetime import datetime
 from unittest.mock import patch
 
 from herdr_subscriptions import collector, daemon, herdr, native, providers, render, setup, storage
-from herdr_subscriptions.cli import demo
+from herdr_subscriptions.cli import demo, main
 
 
 class ProviderTests(unittest.TestCase):
@@ -325,6 +325,32 @@ class DaemonTests(unittest.TestCase):
 
 
 class IntegrationTests(unittest.TestCase):
+    def test_setup_can_switch_to_section_before_herdr_starts(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, {
+            "HERDR_CONFIG_PATH": temporary + "/config.toml",
+            "HERDR_PLUGIN_CONFIG_DIR": temporary + "/plugin",
+            "HERDR_PLUGIN_STATE_DIR": temporary + "/state",
+        }):
+            offline = subprocess.CompletedProcess([], 1, "", '{"error":{"code":"server_not_running"}}')
+            valid = subprocess.CompletedProcess([], 0, "", "")
+            with patch.object(subprocess, "run", side_effect=[offline, valid, offline]) as run, patch.object(daemon, "start") as start:
+                self.assertEqual(main(["setup", "--section", "--apply"]), 0)
+                self.assertEqual([call.args[0][1:] for call in run.call_args_list],
+                                 [["workspace", "list"], ["config", "check"], ["server", "reload-config"]])
+                self.assertEqual(storage.settings()["sidebar_mode"], "section")
+                start.assert_called_once_with()
+            with patch.object(subprocess, "run") as run, patch.object(daemon, "stop") as stop, patch.object(daemon, "start") as start:
+                self.assertEqual(main(["setup", "--section", "--apply"]), 0)
+                run.assert_not_called()
+                stop.assert_not_called()
+                start.assert_called_once_with()
+
+    def test_socket_permission_and_live_server_errors_are_reported(self):
+        for stderr in ("Operation not permitted", '{"error":{"code":"config_invalid"}}'):
+            with self.subTest(stderr=stderr), patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 1, "", stderr)):
+                with self.assertRaisesRegex(RuntimeError, "Herdr request failed"):
+                    herdr.call(["server", "reload-config"])
+
     def test_metadata_moves_with_last_agent_and_clears_previous(self):
         with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, {"HERDR_PLUGIN_STATE_DIR": temporary, "HERDR_PLUGIN_CONFIG_DIR": temporary + "/config"}):
             storage.write_json(storage.session_dir() / "published.json", {"kind": "pane", "target": "w1:p-old"})

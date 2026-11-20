@@ -113,22 +113,25 @@ def main(argv=None):
         elif args.command in ("setup", "unsetup"):
             from . import setup
             if args.apply:
-                if args.command == "setup":
+                mode = "section" if args.section else "agents"
+                if args.command == "setup" and storage.settings()["sidebar_mode"] != mode:
+                    root = daemon.controller_dir()
                     daemon.stop()
-                    deadline = time.monotonic() + 35
-                    while daemon.running() and time.monotonic() < deadline:
-                        time.sleep(0.1)
-                    if daemon.running():
-                        raise RuntimeError("updater is still stopping; config was not changed")
+                    daemon.wait_stopped(root)
                 backup = setup.apply(remove=args.command == "unsetup", section=args.section)
                 print(f"Updated {setup.config_path()}; backup: {backup}" if backup else "Config already up to date")
                 if args.command == "setup":
                     config_file = storage.config_dir() / "config.json"
                     existing = storage.read_json(config_file, {})
-                    existing["sidebar_mode"] = "section" if args.section else "agents"
-                    storage.write_json(config_file, existing)
-                    herdr.call(["server", "reload-config"])
-                    daemon.request_refresh()
+                    if existing.get("sidebar_mode") != mode:
+                        existing["sidebar_mode"] = mode
+                        storage.write_json(config_file, existing)
+                    if backup:
+                        try:
+                            herdr.call(["server", "reload-config"])
+                        except herdr.ServerNotRunning:
+                            pass  # No running server yet; it reads the config when it starts.
+                    daemon.start()
                 else:
                     daemon.stop()
                     herdr.call(["server", "reload-config"])

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import suppress
 import fcntl
 import os
 from pathlib import Path
@@ -100,7 +101,9 @@ def stop():
         signal_stop(root)
         retire_legacy_sections()
         if storage.settings()["sidebar_mode"] == "agents":
-            herdr.clear()
+            # A cold start has no live panes or workspaces to clean up.
+            with suppress(herdr.ServerNotRunning):
+                herdr.clear()
         from . import native
         native.clear()
 

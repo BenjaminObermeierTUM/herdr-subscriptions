@@ -15,6 +15,10 @@ from .render import SIDEBAR_ROWS, sidebar_rows
 TOKENS = [f"subscriptions_{i:02d}" for i in range(1, SIDEBAR_ROWS + 1)]
 
 
+class ServerNotRunning(RuntimeError):
+    """Herdr has no server listening on the selected socket."""
+
+
 def binary():
     return os.environ.get("HERDR_BIN_PATH") or shutil.which("herdr") or "herdr"
 
@@ -22,6 +26,12 @@ def binary():
 def call(args):
     completed = subprocess.run([binary(), *args], capture_output=True, text=True, timeout=5)
     if completed.returncode:
+        try:
+            code = json.loads(completed.stderr)["error"]["code"]
+        except (ValueError, KeyError, TypeError):
+            code = None
+        if code == "server_not_running":
+            raise ServerNotRunning("Herdr server is not running")
         raise RuntimeError("Herdr request failed")
     try:
         return json.loads(completed.stdout)
