@@ -7,6 +7,7 @@ from decimal import Decimal, InvalidOperation
 import math
 import unicodedata
 
+from .storage import MAX_USAGE_AGE, usage_is_current
 from .providers import text
 from .resets import current_count, eligible_limit
 
@@ -105,9 +106,9 @@ def credit_value(subscription):
     return "available" if credits.get("available") else "?"
 
 
-def balance_rows(subscription, now, *, compact=False):
-    credits = credit_value(subscription)
-    count = current_count(subscription, now)
+def balance_rows(subscription, now, *, compact=False, stale_seconds=MAX_USAGE_AGE):
+    credits = credit_value(subscription) if usage_is_current(subscription, now, stale_seconds) else "?"
+    count = current_count(subscription, now, quota_max_age=stale_seconds)
     resets = str(count) if count is not None else "?"
     if compact:
         unit = "cr" if subscription.get("provider") == "codex" and credits[:1].isdigit() else ""
@@ -115,14 +116,14 @@ def balance_rows(subscription, now, *, compact=False):
     return [f"Credits {credits}", f"Resets {resets}"]
 
 
-def subscription_rows(subscription, now, *, columns=23, cells=6, stale_seconds=900, compact=False, native=False):
-    stale = bool(subscription.get("error")) or now - subscription.get("fetched_at", 0) > stale_seconds
+def subscription_rows(subscription, now, *, columns=23, cells=6, stale_seconds=MAX_USAGE_AGE, compact=False, native=False):
+    stale = not usage_is_current(subscription, now, stale_seconds)
     plan = text(subscription.get("plan")).title()
     title = subscription.get("label", subscription["provider"].title()) + (f" {plan}" if plan else "")
     rows = [("? " if stale else "") + title]
-    if subscription.get("error"):
+    if stale and subscription.get("error"):
         rows.append("? " + text(subscription["error"]))
-    if not subscription.get("fetched_at"):
+    if subscription.get("fetched_at") is None:
         return [clip(r, columns) for r in rows]
     if stale:
         rows.append(f"? last good {duration(now - subscription['fetched_at'])} ago")
@@ -137,7 +138,7 @@ def subscription_rows(subscription, now, *, columns=23, cells=6, stale_seconds=9
             if len(matching) > 1:
                 shared.update(matching)
     for index, limit in enumerate(limits):
-        used = limit.get("used_percent")
+        used = None if stale else limit.get("used_percent")
         reset = limit.get("resets_at")
         pending = reset is not None and reset <= now
         if limit.get("key") == "extra":
@@ -156,11 +157,11 @@ def subscription_rows(subscription, now, *, columns=23, cells=6, stale_seconds=9
             rows.append(reset_line(reset, now))
         elif not any(i > index and round(limits[i]["resets_at"]) == round(reset) for i in shared):
             rows.append("└ " + reset_line(reset, now).strip())
-    rows.extend(balance_rows(subscription, now, compact=compact))
+    rows.extend(balance_rows(subscription, now, compact=compact, stale_seconds=stale_seconds))
     return [clip(r, columns) for r in rows]
 
 
-def sidebar_rows(snapshot, now, *, columns=23, row_budget=SIDEBAR_ROWS, stale_seconds=900):
+def sidebar_rows(snapshot, now, *, columns=23, row_budget=SIDEBAR_ROWS, stale_seconds=MAX_USAGE_AGE):
     subscriptions = snapshot.get("subscriptions", [])
     rows = [GAP, f"Subscriptions ({len(subscriptions)})"]
     if not subscriptions:
@@ -175,12 +176,13 @@ def sidebar_rows(snapshot, now, *, columns=23, row_budget=SIDEBAR_ROWS, stale_se
     return [clip(row, columns) for row in rows]
 
 
-def dashboard(snapshot, now, *, columns=70, stale_seconds=900):
+def dashboard(snapshot, now, *, columns=70, stale_seconds=MAX_USAGE_AGE):
     rows = ["SUBSCRIPTIONS", "% used · bars show consumption · reset times are local", ""]
     for subscription in snapshot.get("subscriptions", []):
         rows.extend(subscription_rows(subscription, now, columns=columns, cells=min(20, max(6, columns - 40)), stale_seconds=stale_seconds))
         credits = subscription.get("credits")
-        if credits and credits.get("balance") is not None:
+        current = usage_is_current(subscription, now, stale_seconds)
+        if current and credits and credits.get("balance") is not None:
             rows.append(f"  Credit balance: {credits['balance']} credits (not currency)")
         resets = subscription.get("resets")
         if subscription["provider"] == "claude":
@@ -205,11 +207,11 @@ def dashboard(snapshot, now, *, columns=70, stale_seconds=900):
             for item in resets.get("items", []):
                 expiration = datetime.fromtimestamp(item["expires_at"]).astimezone()
                 rows.append(f"    {item['label']}: expires {expiration:%d %b %Y %H:%M %Z}")
-        if resets and resets.get("expires_at"):
+        if resets and resets.get("expires_at") and (current or subscription["provider"] == "claude"):
             expiration = datetime.fromtimestamp(resets["expires_at"][0]).astimezone()
             rows.append(f"  First saved reset expires: {expiration:%d %b %Y %H:%M %Z}")
         for limit in subscription.get("limits", []):
-            if limit.get("key") == "extra":
+            if current and limit.get("key") == "extra":
                 left = extra_budget_left(limit)
                 if left is not None:
                     rows.append(f"  Extra budget remaining: {amount(left)} of {amount(limit['money_limit'])}")

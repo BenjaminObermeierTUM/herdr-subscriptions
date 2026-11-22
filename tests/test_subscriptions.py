@@ -8,7 +8,7 @@ import tempfile
 import time
 import unittest
 from datetime import datetime
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from herdr_subscriptions import collector, daemon, herdr, native, providers, render, setup, storage
 from herdr_subscriptions.cli import demo, main
@@ -128,6 +128,20 @@ class CacheTests(unittest.TestCase):
         self.assertNotIn("error", result["subscriptions"][1])
         self.assertEqual((storage.state_dir() / "usage.json").stat().st_mode & 0o777, 0o600)
 
+    def test_native_feed_recovers_on_the_next_successful_poll(self):
+        storage.write_json(storage.config_dir() / "config.json", {"providers": ["codex"], "stale_seconds": 7200})
+        with patch("time.time", return_value=100):
+            original = demo()["subscriptions"][0]
+        updated = dict(original, credits={"balance": "900"})
+        fetch = Mock(side_effect=[original, providers.ProviderError("offline"), updated])
+        with patch.dict(providers.FETCHERS, {"codex": fetch}):
+            for now, credits, title in ((100, "1,250", "Codex Pro"), (1901, "?", "? Codex Pro"),
+                                        (1961, "900", "Codex Pro")):
+                with patch("time.time", return_value=now):
+                    rows = native.section_document(collector.refresh(force=True), now)["rows"]
+                self.assertEqual(rows[0]["text"], title)
+                self.assertIn({"text": "Credits " + credits, "kind": "text"}, rows)
+
     def test_exception_text_cannot_leak_to_cache(self):
         def broken(): raise RuntimeError("PRIVATE_TOKEN")
         with patch.dict(providers.FETCHERS, {"codex": broken, "claude": broken}):
@@ -181,10 +195,51 @@ class RenderTests(unittest.TestCase):
         self.assertIn("refresh", " ".join(rows))
         self.assertNotIn("0%", " ".join(rows))
 
-    def test_error_uses_stale_marker_and_overflow_is_explicit(self):
+    def test_cached_values_survive_repeated_failures_through_thirty_minutes(self):
+        with patch("time.time", return_value=100):
+            data = demo()
+        sub = data["subscriptions"][0]
+        for now in (101, 220, 1899, 1900):
+            sub = collector.failed(sub, "codex", "offline", now)
+            data["subscriptions"][0] = sub
+            rows = render.subscription_rows(sub, now, native=True)
+            self.assertEqual(rows[0], "Codex Pro")
+            self.assertTrue(any("72%" in row for row in rows))
+            self.assertIn("Credits 1,250", rows)
+            self.assertIn("Resets 2", rows)
+            self.assertFalse(any("?" in row for row in rows))
+            self.assertNotIn("offline", " ".join(render.dashboard(data, now)))
+            self.assertIn("1,250cr · 2 resets", render.sidebar_rows(data, now))
+
+        rows = render.dashboard(data, 1901)
+        for expected in ("? Codex Pro", "? offline", "? last good 31m ago", "Credits ?", "Resets ?"):
+            self.assertIn(expected, rows)
+        self.assertFalse(any("72%" in row or "1,250" in row or "1250" in row for row in rows))
+        self.assertTrue(any("Weekly" in row and "?" in row for row in rows))
+        self.assertNotIn("Extra budget remaining", " ".join(rows))
+        self.assertIn("Resets 1", rows)  # Independent Claude inventory is still valid.
+
+    def test_first_failure_is_visible_without_a_successful_reading(self):
+        sub = collector.failed({}, "codex", "offline", 100)
+        self.assertEqual(render.subscription_rows(sub, 101), ["? Codex", "? offline"])
+
+    def test_expired_quota_window_and_reset_grant_during_grace(self):
+        with patch("time.time", return_value=100):
+            sub = demo()["subscriptions"][0]
+        sub["limits"][0]["resets_at"] = 140
+        sub["resets"]["expires_at"] = [180]
+        sub = collector.failed(sub, "codex", "offline", 130)
+        rows = render.subscription_rows(sub, 140)
+        self.assertIn("? reset · refresh", rows)
+        self.assertIn("Resets 2", rows)
+        self.assertNotIn("72%", " ".join(rows))
+        self.assertIn("Resets ?", render.subscription_rows(sub, 180))
+
+    def test_stale_marker_and_overflow_after_configured_timeout(self):
         data = demo()
         data["subscriptions"][0]["error"] = "offline"
-        rows = render.sidebar_rows(data, time.time(), row_budget=5)
+        now = data["subscriptions"][0]["fetched_at"] + 601
+        rows = render.sidebar_rows(data, now, row_budget=5, stale_seconds=600)
         self.assertEqual(len(rows), 5)
         self.assertTrue(rows[2].startswith("? "))
         self.assertIn("dashboard", rows[-1])
@@ -224,6 +279,20 @@ class RenderTests(unittest.TestCase):
 
 
 class NativeSectionTests(unittest.TestCase):
+    def test_eligible_codex_reset_has_no_sidebar_button(self):
+        data = demo()
+        codex, claude = data["subscriptions"]
+        codex["limits"][0]["used_percent"] = 100
+        claude["limits"][0]["used_percent"] = 100
+        claude["resets"]["exhausted"] = ["session"]
+        now = codex["fetched_at"]
+        with patch.object(storage, "settings", return_value={"stale_seconds": 1800}):
+            rows = native.section_document(data, now)["rows"]
+        actions = [row for row in rows if row["kind"].startswith("reset_")]
+        self.assertEqual(actions, [{"text": "[Open Claude reset offers]", "kind": "reset_claude"}])
+        self.assertIn({"text": "Resets 2", "kind": "text"}, rows)
+        self.assertIn("  c  Use a Codex reset", render.dashboard(data, now))
+
     def test_section_is_independent_of_any_workspace_or_agent(self):
         with patch.object(storage, "settings", return_value={"stale_seconds": 900}):
             document = native.section_document(demo(), time.time())

@@ -88,8 +88,10 @@ scroll and `q` to close. The plugin action menu also offers refresh and stop.
 
 Vendor metadata refreshes every minute and just after the next reported
 quota reset, with a 25-second deadline per provider. Placement/feed/countdowns
-update every five seconds. Provider failures preserve last-good values marked
-stale, without discarding the other provider. The native section dims stale feeds.
+update every five seconds. If a poll fails, the sidebar and dashboard keep that
+provider's last successful values for up to 30 minutes. After that, they show
+`?` until a poll succeeds. A quota window that reaches its reset time shows
+`?` immediately. Claude's saved-reset inventory uses its own daily check.
 
 All standalone clients share one updater and feed, regardless of the shell or
 Herdr session they were launched from. Startup drains older session writers and
@@ -121,11 +123,12 @@ Find the directory with `herdr plugin config-dir subscriptions`. Optional `confi
   "providers": ["codex", "claude"],
   "refresh_seconds": 60,
   "reset_refresh_seconds": 86400,
-  "stale_seconds": 900,
+  "stale_seconds": 1800,
   "sidebar_mode": "section"
 }
 ```
 
+Use a lower `stale_seconds` to shorten the 30-minute window.
 The launcher sets `section` automatically. The fallback setup sets `agents`.
 This version reads each CLI's default signed-in account; multiple account
 profiles within the same provider are not yet supported.
@@ -161,13 +164,11 @@ provider rate limits and loss of sign-in can delay a check.
 
 ### Use a saved reset
 
-When a covered usage limit reaches 100% and a saved reset is available, the
-independent sidebar displays an action under that provider.
-
-- **Codex:** Click **Use a saved reset**, review the limit in the overlay, then
-  enter `y` to use one banked reset. Enter cancels by default. The plugin rereads
-  the account and limit before submitting and refreshes after the result. On a
-  remote Herdr endpoint the button opens Codex Usage in the local browser.
+- **Codex** shows your saved-reset count in the sidebar. When a covered limit
+  reaches 100%, open the dashboard with **Ctrl+B, then U** and press `c`.
+  You can also run `python3 -m herdr_subscriptions reset-codex` from the plugin
+  checkout. Review the limit, then type `y` and press Enter to use one reset.
+  Press Enter at the prompt to cancel.
 - **Claude:** Click **Open Claude reset offers**, choose **Reset for free** on
   the matching offer, and confirm in Claude. The action requires both the
   browser and CLI to show an exhausted covered limit and the Usage page to

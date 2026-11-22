@@ -9,6 +9,13 @@ import tempfile
 import time
 from pathlib import Path
 
+MAX_USAGE_AGE = 30 * 60
+
+
+def usage_is_current(sub, now, max_age=MAX_USAGE_AGE):
+    fetched = sub.get("fetched_at")
+    return fetched is not None and 0 <= now - fetched <= min(max_age, MAX_USAGE_AGE)
+
 
 def state_dir():
     if os.environ.get("HERDR_PLUGIN_STATE_DIR"):
@@ -72,7 +79,7 @@ def settings():
     reset_refresh = value.get("reset_refresh_seconds", 86400)
     if type(reset_refresh) is not int or not 60 <= reset_refresh <= 86400:
         raise ValueError("reset_refresh_seconds must be between 60 and 86400")
-    stale = value.get("stale_seconds", 900)
+    stale = value.get("stale_seconds", MAX_USAGE_AGE)
     if not isinstance(refresh, int) or not 30 <= refresh <= 3600:
         raise ValueError("refresh_seconds must be between 30 and 3600")
     if not isinstance(stale, int) or stale < refresh:
@@ -81,7 +88,7 @@ def settings():
     if mode not in ("agents", "section"):
         raise ValueError("sidebar_mode must be agents or section")
     return {"providers": providers, "refresh_seconds": min(refresh, 60), "reset_refresh_seconds": reset_refresh,
-            "stale_seconds": stale, "sidebar_mode": mode}
+            "stale_seconds": min(stale, MAX_USAGE_AGE), "sidebar_mode": mode}
 
 
 def cached():

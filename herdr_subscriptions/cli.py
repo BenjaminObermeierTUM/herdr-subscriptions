@@ -34,8 +34,9 @@ def demo():
 
 
 def panel(use_demo=False):
+    stale_seconds = storage.MAX_USAGE_AGE if use_demo else storage.settings()["stale_seconds"]
     if not sys.stdin.isatty() or not sys.stdout.isatty():
-        print("\n".join(dashboard(demo() if use_demo else storage.cached(), time.time())))
+        print("\n".join(dashboard(demo() if use_demo else storage.cached(), time.time(), stale_seconds=stale_seconds)))
         return
     if not use_demo:
         daemon.start()
@@ -47,7 +48,8 @@ def panel(use_demo=False):
         sys.stdout.write("\x1b[?25l")
         while True:
             size = shutil.get_terminal_size((70, 25))
-            rows = dashboard(demo() if use_demo else storage.cached(), time.time(), columns=max(1, size.columns - 2))
+            rows = dashboard(demo() if use_demo else storage.cached(), time.time(),
+                             columns=max(1, size.columns - 2), stale_seconds=stale_seconds)
             height = max(1, size.lines - 1)
             offset = min(offset, max(0, len(rows) - height))
             lines = rows[offset:offset + height]
@@ -107,7 +109,8 @@ def main(argv=None):
                 print(json.dumps(snapshot, indent=2, ensure_ascii=False))
             else:
                 renderer = sidebar_rows if args.sidebar else dashboard
-                print("\n".join(renderer(snapshot, time.time())))
+                stale_seconds = storage.MAX_USAGE_AGE if args.demo else storage.settings()["stale_seconds"]
+                print("\n".join(renderer(snapshot, time.time(), stale_seconds=stale_seconds)))
         elif args.command == "panel":
             panel(args.demo)
         elif args.command in ("setup", "unsetup"):

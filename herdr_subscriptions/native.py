@@ -20,10 +20,8 @@ def section_document(snapshot, now):
                     else "dim" if value.startswith("? ") else "codex" if value.startswith("Codex")
                     else "claude" if value.startswith("Claude") else "text")
             rows.append({"text": value, "kind": kind})
-        if eligible_limit(subscription, now):
-            provider = subscription["provider"]
-            label = "[Use a saved reset]" if provider == "codex" else "[Open Claude reset offers]"
-            rows.append({"text": label, "kind": "reset_" + provider})
+        if subscription["provider"] == "claude" and eligible_limit(subscription, now):
+            rows.append({"text": "[Open Claude reset offers]", "kind": "reset_claude"})
     if not subscriptions:
         rows.append({"text": "Loading subscription usage…", "kind": "dim"})
     return {"schema": 1, "title": f"Subscriptions ({len(subscriptions)})",

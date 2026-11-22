@@ -10,7 +10,7 @@ import uuid
 from . import providers, storage
 
 
-def current_count(sub, now):
+def current_count(sub, now, *, quota_max_age=storage.MAX_USAGE_AGE):
     resets = sub.get("resets") or {}
     count = resets.get("available")
     if type(count) is not int or count < 0:
@@ -19,12 +19,12 @@ def current_count(sub, now):
         if resets.get("source") != "chrome-usage":
             return None
         checked = resets.get("checked_at", 0)
-    else:
-        if sub.get("error"):
-            return None
-        checked = sub.get("fetched_at", 0)
-    max_age = resets.get("interval", 86400) + 90 if sub.get("provider") == "claude" else 90
-    return count if 0 <= now - checked <= max_age else None
+        return count if 0 <= now - checked <= resets.get("interval", 86400) + 90 else None
+    if not storage.usage_is_current(sub, now, quota_max_age):
+        return None
+    if any(sub["fetched_at"] < expiry <= now for expiry in resets.get("expires_at", [])):
+        return None
+    return count
 
 
 def eligible_limit(sub, now):
