@@ -12,7 +12,7 @@ import time
 import tty
 
 from . import browser, collector, daemon, herdr, selection, storage
-from .render import dashboard, sidebar_rows
+from .render import dashboard, sidebar_rows, subscription_heading
 from .resets import confirm_codex, eligible_limit
 
 
@@ -35,7 +35,7 @@ def demo():
 
 def choose_subscription(rows):
     for i, row in enumerate(rows, 1):
-        print(f"{i}. {row.get('subscription_label') or row['id']}")
+        print(f"{i}. {subscription_heading(row)}")
     choice = input("Choose subscription (Enter to cancel): ").strip()
     if choice.isdecimal() and 1 <= int(choice) <= len(rows):
         return rows[int(choice) - 1]
