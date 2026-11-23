@@ -116,12 +116,23 @@ def balance_rows(subscription, now, *, compact=False, stale_seconds=MAX_USAGE_AG
     return [f"Credits {credits}", f"Resets {resets}"]
 
 
-def subscription_rows(subscription, now, *, columns=23, cells=6, stale_seconds=MAX_USAGE_AGE, compact=False, native=False):
-    stale = not usage_is_current(subscription, now, stale_seconds)
+def subscription_heading(subscription, *, columns=80, stale=False):
     plan = text(subscription.get("plan")).title()
     title = subscription.get("label", subscription["provider"].title()) + (f" {plan}" if plan else "")
     title = subscription.get("subscription_label") or title
-    rows = [("? " if stale else "") + title]
+    if stale:
+        title = "? " + title
+    command = subscription.get("launch_command", subscription["provider"])
+    if not command:
+        return clip(title, columns)
+    suffix = f"[{command}]"
+    room = columns - width(suffix) - 1
+    return clip(title, room) + " " + suffix if room > 0 else clip(suffix, columns)
+
+
+def subscription_rows(subscription, now, *, columns=23, cells=6, stale_seconds=MAX_USAGE_AGE, compact=False, native=False):
+    stale = not usage_is_current(subscription, now, stale_seconds)
+    rows = [subscription_heading(subscription, columns=columns, stale=stale)]
     if stale and subscription.get("error"):
         rows.append("? " + text(subscription["error"]))
     if subscription.get("fetched_at") is None:

@@ -8,7 +8,7 @@ import fcntl
 import os
 import time
 
-from . import storage
+from . import launchers, storage
 from .providers import FETCHERS, ProviderError
 
 
@@ -75,6 +75,7 @@ def refresh(*, force=False):
             subscriptions = list(executor.map(fetch, entries))
         snapshot = {"schema": 1, "subscriptions": subscriptions}
         for entry, sub in zip(entries, subscriptions):
+            sub["launch_command"] = launchers.command_for(entry)
             if sub["provider"] == "claude" and not sub.get("error"):
                 key = sub["id"]
                 if exhausted_windows(sub, now) - exhausted_windows(old.get(key, {}), now):

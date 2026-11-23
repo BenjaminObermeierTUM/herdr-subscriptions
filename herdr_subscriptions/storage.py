@@ -169,6 +169,7 @@ def cached():
             row = next((s for s in value["subscriptions"] if "id" not in s and s["provider"] == entry["provider"]), None)
         if row is not None:
             row.update(id=entry["id"], binding=entry["binding"], subscription_label=entry["label"])
+            row.setdefault("launch_command", entry["provider"] if entry["config_dir"] is None else None)
             if row["provider"] == "claude":
                 row["show_idle_five_hour"] = entry["show_idle_five_hour"]
                 row["resets"] = latest_claude_resets(entry)

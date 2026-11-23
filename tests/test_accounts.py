@@ -1,10 +1,11 @@
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from herdr_subscriptions import browser, collector, native, providers, selection, storage
+from herdr_subscriptions import browser, collector, native, providers, render, selection, storage
 
 
 class SubscriptionTests(unittest.TestCase):
@@ -12,6 +13,7 @@ class SubscriptionTests(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         env = patch.dict(os.environ, {"HERDR_PLUGIN_STATE_DIR": temp.name, "HERDR_PLUGIN_CONFIG_DIR": temp.name,
+                                     "XDG_BIN_HOME": temp.name + "/bin", "PATH": temp.name + "/bin:" + os.defpath,
                                      "HERDR_WORKSPACE_ID": "w1", "HERDR_PLUGIN_CONTEXT_JSON": "{}"})
         env.start()
         self.addCleanup(env.stop)
@@ -40,8 +42,8 @@ class SubscriptionTests(unittest.TestCase):
         self.assertIsNone(personal["resets"])
         self.assertEqual(personal["limits"][0]["used_percent"], 73)
         kinds = {r["kind"]: r["text"] for r in native.section_document(result, max(work["fetched_at"], personal["fetched_at"]))["rows"]}
-        self.assertEqual(kinds["select_claude:work"], "Claude Team")
-        self.assertEqual(kinds["select_claude:personal"], "Personal")
+        self.assertEqual(kinds["select_claude:work"], "Claude Team [claude]")
+        self.assertEqual(kinds["select_claude:personal"], "Personal [claude2]")
         self.rows[1]["config_dir"] = self.home + "-changed"
         self.save()
         self.assertEqual([s["id"] for s in storage.cached()["subscriptions"]], ["work"])
@@ -85,6 +87,71 @@ class SubscriptionTests(unittest.TestCase):
         for change in ({"id": "work"}, {"id": "../unsafe"}, {"config_dir": None}):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 storage.subscriptions({"subscriptions": [self.rows[0], {**self.rows[1], **change}]})
+
+    def test_added_claude_and_codex_commands_stay_bound_to_their_login(self):
+        folder = Path(os.environ["XDG_BIN_HOME"])
+        folder.mkdir()
+        for provider, variable in (("claude", "CLAUDE_CONFIG_DIR"), ("codex", "CODEX_HOME")):
+            stub = folder / provider
+            stub.write_text('#!/bin/sh\nprintf "%s\\n" "${' + variable + ':-default}" "$@"\n')
+            stub.chmod(0o700)
+
+        def refresh():
+            with patch.dict(providers.FETCHERS, {"codex": lambda *args, **kwargs: {"provider": "codex"},
+                                                 "claude": lambda *args: {"provider": "claude"}}):
+                return collector.refresh(force=True)["subscriptions"]
+
+        def run(command, *args, check=True):
+            return subprocess.run([command, *args], check=check, capture_output=True, text=True)
+
+        self.rows.append({"id": "main", "provider": "codex", "label": "Codex Pro"})
+        self.save()
+        self.assertEqual([s["launch_command"] for s in refresh()], ["claude", "claude2", "codex"])
+        third_home = self.home + " third"
+        codex_home = self.home + " codex"
+        self.rows.reverse()
+        self.rows[:0] = [{"id": "third", "provider": "claude", "label": "Third", "config_dir": third_home},
+                         {"id": "other", "provider": "codex", "label": "Other", "config_dir": codex_home}]
+        self.save()
+        snapshot = refresh()
+        commands = {s["id"]: s["launch_command"] for s in snapshot}
+        self.assertEqual(commands, {"main": "codex", "other": "codex2", "work": "claude",
+                                    "personal": "claude2", "third": "claude3"})
+        for row in snapshot:
+            self.assertTrue(render.subscription_heading(row).endswith("[" + commands[row["id"]] + "]"))
+        for name, directory in (("claude2", self.home), ("claude3", third_home), ("codex2", codex_home)):
+            self.assertEqual(run(name, "--resume", "one argument").stdout.splitlines(),
+                             [directory, "--resume", "one argument"])
+        removed = self.rows.pop(0)
+        self.save()
+        self.assertNotEqual(run("claude3", check=False).returncode, 0)
+        self.rows.insert(0, {**removed, "config_dir": third_home + "-changed"})
+        self.save()
+        self.assertEqual(refresh()[0]["launch_command"], "claude4")
+        self.assertNotEqual(run("claude3", check=False).returncode, 0)
+        self.rows[0] = removed
+        self.save()
+        self.assertEqual(refresh()[0]["launch_command"], "claude3")
+
+    def test_launch_command_skips_existing_names_and_survives_a_long_label(self):
+        folder = Path(os.environ["XDG_BIN_HOME"])
+        folder.mkdir()
+        occupied = folder / "claude2"
+        occupied.write_text("user command")
+        self.rows[1]["label"] = "My long secondary account label"
+        self.save()
+        with patch.dict(providers.FETCHERS, claude=Mock(side_effect=providers.ProviderError("offline"))):
+            snapshot = collector.refresh(force=True)
+        secondary = snapshot["subscriptions"][1]
+        self.assertEqual(secondary["launch_command"], "claude3")
+        self.assertEqual(occupied.read_text(), "user command")
+        occupied.unlink()
+        with patch.dict(providers.FETCHERS, claude=Mock(side_effect=providers.ProviderError("offline"))):
+            self.assertEqual(collector.refresh(force=True)["subscriptions"][1]["launch_command"], "claude3")
+        title = render.subscription_rows(secondary, 0, columns=23)[0]
+        self.assertTrue(title.startswith("? "))
+        self.assertTrue(title.endswith("… [claude3]"))
+        self.assertLessEqual(render.width(title), 23)
 
     def test_selection_reuses_only_the_same_live_terminal(self):
         entry = storage.subscription("personal")

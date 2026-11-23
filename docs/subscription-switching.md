@@ -2,6 +2,10 @@
 
 Click **Claude Team**, **Claude Ultra**, or **Codex Pro** in the Subscriptions sidebar to use that login. The first click opens a named agent tab in the current worktree. Click the same heading again in that workspace and worktree to return to its open conversation. Each subscription keeps its own tab.
 
+The brackets beside each heading show its shell command, for example **Claude Ultra [claude2]**. The default logins use `claude` and `codex`. On the next usage refresh, each additional login gets the next available number for its provider, such as `claude3` or `codex2`. You can pass the usual CLI arguments to these commands.
+
+Herdr installs numbered launchers in `~/.local/bin` (or `$XDG_BIN_HOME`). Put this directory on your shell’s `PATH` to use the short names. Existing executable names are skipped. Renaming or reordering subscriptions preserves their numbers. Removing a subscription disables its command and keeps its number reserved for that login.
+
 For keyboard selection, press **Ctrl+B**, then **U** to open the dashboard. Press **s**, type the number beside the subscription, and press **Enter**.
 
 ## Add a second Claude login

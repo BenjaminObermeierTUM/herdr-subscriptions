@@ -135,8 +135,8 @@ class CacheTests(unittest.TestCase):
         updated = dict(original, credits={"balance": "900"})
         fetch = Mock(side_effect=[original, providers.ProviderError("offline"), updated])
         with patch.dict(providers.FETCHERS, {"codex": fetch}):
-            for now, credits, title in ((100, "1,250", "Codex Pro"), (1901, "?", "? Codex Pro"),
-                                        (1961, "900", "Codex Pro")):
+            for now, credits, title in ((100, "1,250", "Codex Pro [codex]"), (1901, "?", "? Codex Pro [codex]"),
+                                        (1961, "900", "Codex Pro [codex]")):
                 with patch("time.time", return_value=now):
                     rows = native.section_document(collector.refresh(force=True), now)["rows"]
                 self.assertEqual(rows[0]["text"], title)
@@ -180,7 +180,7 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(rows[1], "Subscriptions (2)")
         self.assertEqual(rows.count(render.GAP), 2)
         self.assertEqual(sum(row.startswith("└ ") for row in rows), 1)
-        self.assertIn("Codex Pro", rows)
+        self.assertIn("Codex Pro [codex]", rows)
         self.assertTrue(any(row.startswith("Claude Team") for row in rows))
         self.assertTrue(all(render.width(row) <= 23 for row in rows))
         for expected in ("Codex", "Claude", "Weekly", "Fable", "€", "resets"):
@@ -203,7 +203,7 @@ class RenderTests(unittest.TestCase):
             sub = collector.failed(sub, "codex", "offline", now)
             data["subscriptions"][0] = sub
             rows = render.subscription_rows(sub, now, native=True)
-            self.assertEqual(rows[0], "Codex Pro")
+            self.assertEqual(rows[0], "Codex Pro [codex]")
             self.assertTrue(any("72%" in row for row in rows))
             self.assertIn("Credits 1,250", rows)
             self.assertIn("Resets 2", rows)
@@ -212,7 +212,7 @@ class RenderTests(unittest.TestCase):
             self.assertIn("1,250cr · 2 resets", render.sidebar_rows(data, now))
 
         rows = render.dashboard(data, 1901)
-        for expected in ("? Codex Pro", "? offline", "? last good 31m ago", "Credits ?", "Resets ?"):
+        for expected in ("? Codex Pro [codex]", "? offline", "? last good 31m ago", "Credits ?", "Resets ?"):
             self.assertIn(expected, rows)
         self.assertFalse(any("72%" in row or "1,250" in row or "1250" in row for row in rows))
         self.assertTrue(any("Weekly" in row and "?" in row for row in rows))
@@ -221,7 +221,7 @@ class RenderTests(unittest.TestCase):
 
     def test_first_failure_is_visible_without_a_successful_reading(self):
         sub = collector.failed({}, "codex", "offline", 100)
-        self.assertEqual(render.subscription_rows(sub, 101), ["? Codex", "? offline"])
+        self.assertEqual(render.subscription_rows(sub, 101), ["? Codex [codex]", "? offline"])
 
     def test_expired_quota_window_and_reset_grant_during_grace(self):
         with patch("time.time", return_value=100):

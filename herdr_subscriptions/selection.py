@@ -52,9 +52,10 @@ def select_pane(entry):
         herdr.call(["tab", "rename", pane["tab_id"], entry["label"] or entry["id"]])
 
 
-def launch_agent():
-    entry = storage.subscription(os.environ["HERDR_SUBSCRIPTION_ID"])
+def launch_agent(entry=None, args=()):
+    if entry is None:
+        entry = storage.subscription(os.environ["HERDR_SUBSCRIPTION_ID"])
     program = shutil.which(entry["provider"])
     if not program:
         raise ValueError("agent CLI is not installed")
-    os.execve(program, [program], storage.login_env(entry["provider"], entry["config_dir"]))
+    os.execve(program, [program, *args], storage.login_env(entry["provider"], entry["config_dir"]))
