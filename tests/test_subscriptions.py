@@ -70,7 +70,7 @@ class ProviderTests(unittest.TestCase):
         replies = [{"id": 1, "result": {}}, {"id": 2, "result": {"rateLimits": {
             "primary": {"usedPercent": 10, "windowDurationMins": 10080}}}}]
         class FakeProcess:
-            def __init__(self, argv): calls.append(argv)
+            def __init__(self, argv, **kwargs): calls.append(argv)
             def __enter__(self): return self
             def __exit__(self, *_): pass
             def send(self, obj): calls.append(obj)
@@ -119,8 +119,8 @@ class CacheTests(unittest.TestCase):
         now = time.time()
         storage.write_json(storage.state_dir() / "usage.json", {"schema": 1, "subscriptions": [
             {"provider": "codex", "label": "Codex", "fetched_at": now - 600, "limits": [{"used_percent": 45}]}]})
-        def broken(): raise providers.ProviderError("client unavailable")
-        with patch.dict(providers.FETCHERS, {"codex": broken, "claude": lambda: {"provider": "claude", "label": "Claude", "limits": []}}):
+        def broken(*args, **kwargs): raise providers.ProviderError("client unavailable")
+        with patch.dict(providers.FETCHERS, {"codex": broken, "claude": lambda *args: {"provider": "claude", "label": "Claude", "limits": []}}):
             result = collector.refresh(force=True)
         self.assertEqual(result["subscriptions"][0]["limits"][0]["used_percent"], 45)
         self.assertEqual(result["subscriptions"][0]["fetched_at"], now - 600)
@@ -143,7 +143,7 @@ class CacheTests(unittest.TestCase):
                 self.assertIn({"text": "Credits " + credits, "kind": "text"}, rows)
 
     def test_exception_text_cannot_leak_to_cache(self):
-        def broken(): raise RuntimeError("PRIVATE_TOKEN")
+        def broken(*args, **kwargs): raise RuntimeError("PRIVATE_TOKEN")
         with patch.dict(providers.FETCHERS, {"codex": broken, "claude": broken}):
             collector.refresh(force=True)
         self.assertNotIn("PRIVATE_TOKEN", (storage.state_dir() / "usage.json").read_text())
@@ -166,9 +166,9 @@ class CacheTests(unittest.TestCase):
         self.assertIsNone(storage.claude_resets(now=150))
 
     def test_fresh_cache_skips_network(self):
-        with patch.dict(providers.FETCHERS, {"codex": lambda: {"provider": "codex", "limits": []}, "claude": lambda: {"provider": "claude", "limits": []}}):
+        with patch.dict(providers.FETCHERS, {"codex": lambda *args, **kwargs: {"provider": "codex", "limits": []}, "claude": lambda *args: {"provider": "claude", "limits": []}}):
             collector.refresh(force=True)
-        with patch.dict(providers.FETCHERS, {"codex": lambda: self.fail("polled fresh cache"), "claude": lambda: self.fail("polled fresh cache")}):
+        with patch.dict(providers.FETCHERS, {"codex": lambda *args, **kwargs: self.fail("polled fresh cache"), "claude": lambda *args: self.fail("polled fresh cache")}):
             collector.refresh()
 
 

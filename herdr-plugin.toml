@@ -1,6 +1,6 @@
 id = "subscriptions"
 name = "Subscriptions"
-version = "0.3.2"
+version = "0.4.1"
 min_herdr_version = "0.9.5"
 description = "An independent Subscriptions section for Claude and Codex limits, credits and saved resets, with an optional companion Herdr client."
 platforms = ["macos", "linux"]
@@ -44,3 +44,19 @@ id = "codex-reset"
 title = "Use a Codex reset"
 placement = "overlay"
 command = ["python3", "-m", "herdr_subscriptions", "reset-codex"]
+
+[[actions]]
+id = "select"
+title = "Subscriptions: select agent"
+command = ["python3", "-m", "herdr_subscriptions", "select"]
+
+[[actions]]
+id = "open-offers"
+title = "Subscriptions: open Claude reset offers"
+command = ["python3", "-m", "herdr_subscriptions", "open-offers"]
+
+[[panes]]
+id = "agent"
+title = "Subscription agent"
+placement = "tab"
+command = ["sh", "-c", 'exec python3 -I "$HERDR_PLUGIN_ROOT/bin/subscription-agent"']

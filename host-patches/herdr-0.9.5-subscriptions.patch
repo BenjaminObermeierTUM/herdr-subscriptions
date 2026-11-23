@@ -81,7 +81,7 @@ index 9698248..bc8716d 100644
      put_text(
          buffer,
 diff --git a/src/client/shell/mouse.rs b/src/client/shell/mouse.rs
-index 8e873d6..f35602f 100644
+index 8e873d6..cac6a21 100644
 --- a/src/client/shell/mouse.rs
 +++ b/src/client/shell/mouse.rs
 @@ -1895,6 +1895,17 @@ impl ClientShellState {
@@ -102,15 +102,67 @@ index 8e873d6..f35602f 100644
              MouseEventKind::ScrollUp if super::contains(self.hits.agent_body, point) => {
                  let next = self.agent_scroll.saturating_sub(1);
                  if next != self.agent_scroll {
-@@ -1950,6 +1961,41 @@ impl ClientShellState {
+@@ -1950,6 +1961,93 @@ impl ClientShellState {
                      self.persist_chrome_preferences(outcome);
                      return;
                  }
-+                if let Some(provider) = self.subscription_section.reset_at(
++                if let Some(provider) = self.subscription_section.action_at(
 +                    self.hits.subscription_area,
 +                    self.subscription_scroll,
 +                    point,
 +                ) {
++                    if let Some((kind, id)) = provider.split_once(':') {
++                        use crate::api::schema::{
++                            Method, PluginActionInvokeParams, PluginInvocationContext,
++                        };
++                        if self.active_endpoint_id.is_local() {
++                            if let Some(snapshot) = self.snapshot.as_deref() {
++                                let pane = snapshot.panes.iter().find(|p| {
++                                    Some(&p.pane_id) == snapshot.focused_pane_id.as_ref()
++                                });
++                                let workspace = snapshot.workspaces.iter().find(|w| {
++                                    Some(&w.workspace_id) == snapshot.focused_workspace_id.as_ref()
++                                });
++                                if let Some(workspace) = workspace {
++                                    let context = PluginInvocationContext {
++                                        workspace_id: Some(workspace.workspace_id.clone()),
++                                        workspace_cwd: Some(workspace.new_workspace_cwd.clone()),
++                                        focused_pane_id: snapshot.focused_pane_id.clone(),
++                                        focused_pane_cwd: pane
++                                            .and_then(|p| {
++                                                p.foreground_cwd.clone().or_else(|| p.cwd.clone())
++                                            })
++                                            .or_else(|| Some(workspace.new_workspace_cwd.clone())),
++                                        invocation_source: Some(format!("subscriptions/{id}")),
++                                        workspace_label: None,
++                                        worktree: None,
++                                        tab_id: snapshot.focused_tab_id.clone(),
++                                        tab_label: None,
++                                        focused_pane_agent: None,
++                                        focused_pane_status: None,
++                                        selected_text: None,
++                                        correlation_id: None,
++                                        clicked_url: None,
++                                        link_handler_id: None,
++                                    };
++                                    self.push_endpoint_method(
++                                        Method::PluginActionInvoke(PluginActionInvokeParams {
++                                            plugin_id: Some("subscriptions".into()),
++                                            action_id: (if kind == "reset_claude" {
++                                                "open-offers"
++                                            } else {
++                                                "select"
++                                            })
++                                            .into(),
++                                            context: Some(context),
++                                        }),
++                                        outcome,
++                                    );
++                                }
++                            }
++                        }
++                        return;
++                    }
 +                    if provider == "codex" && self.active_endpoint_id.is_local() {
 +                        use crate::api::schema::{Method, PluginPaneOpenParams};
 +                        self.push_endpoint_method(
@@ -229,10 +281,10 @@ index 5a73292..9619709 100644
              snapshot: None,
 diff --git a/src/client/shell/subscription_section.rs b/src/client/shell/subscription_section.rs
 new file mode 100644
-index 0000000..6b27ef2
+index 0000000..8e95392
 --- /dev/null
 +++ b/src/client/shell/subscription_section.rs
-@@ -0,0 +1,383 @@
+@@ -0,0 +1,404 @@
 +//! Optional, client-owned sidebar section fed by a local plugin JSON file.
 +//! The server protocol and agent/workspace metadata are deliberately unchanged.
 +use std::path::PathBuf;
@@ -342,7 +394,7 @@ index 0000000..6b27ef2
 +        changed || self.stale != old_stale
 +    }
 +
-+    pub(super) fn reset_at(&self, area: Rect, scroll: usize, point: (u16, u16)) -> Option<&str> {
++    pub(super) fn action_at(&self, area: Rect, scroll: usize, point: (u16, u16)) -> Option<&str> {
 +        let doc = self.document.as_ref()?;
 +        if self.stale
 +            || !super::contains(area, point)
@@ -361,7 +413,17 @@ index 0000000..6b27ef2
 +        match row.kind.as_str() {
 +            "reset_codex" => Some("codex"),
 +            "reset_claude" => Some("claude"),
-+            _ => None,
++            kind => {
++                let (action, id) = kind.split_once(':')?;
++                let valid_id = !id.is_empty()
++                    && id.len() <= 40
++                    && id.as_bytes()[0].is_ascii_lowercase()
++                    && id
++                        .bytes()
++                        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
++                (valid_id && matches!(action, "select_claude" | "select_codex" | "reset_claude"))
++                    .then_some(kind)
++            }
 +        }
 +    }
 +
@@ -425,11 +487,11 @@ index 0000000..6b27ef2
 +            .take(height)
 +            .enumerate()
 +        {
-+            let mut style = match row.kind.as_str() {
-+                "codex" => Style::default()
++            let mut style = match row.kind.split(':').next().unwrap_or("") {
++                "select_codex" | "codex" => Style::default()
 +                    .fg(palette.green)
 +                    .add_modifier(Modifier::BOLD),
-+                "claude" => Style::default()
++                "select_claude" | "claude" => Style::default()
 +                    .fg(palette.mauve)
 +                    .add_modifier(Modifier::BOLD),
 +                "reset_codex" | "reset_claude" if !self.stale => Style::default()
@@ -494,12 +556,23 @@ index 0000000..6b27ef2
 +            kind: "reset_codex".into(),
 +        };
 +        let area = Rect::new(0, 10, 25, 5);
-+        assert_eq!(section.reset_at(area, 999, (2, 13)), Some("codex"));
++        assert_eq!(section.action_at(area, 999, (2, 13)), Some("codex"));
 +        for point in [(2, 11), (2, 14), (20, 13), (0, 13)] {
-+            assert_eq!(section.reset_at(area, 999, point), None);
++            assert_eq!(section.action_at(area, 999, point), None);
 +        }
++        for kind in [
++            "select_claude:team",
++            "select_claude:ultra",
++            "select_codex:work",
++            "reset_claude:ultra",
++        ] {
++            section.document.as_mut().unwrap().rows[4].kind = kind.into();
++            assert_eq!(section.action_at(area, 999, (2, 13)), Some(kind));
++        }
++        section.document.as_mut().unwrap().rows[4].kind = "select_claude:../bad".into();
++        assert_eq!(section.action_at(area, 999, (2, 13)), None);
 +        section.stale = true;
-+        assert_eq!(section.reset_at(area, 999, (2, 13)), None);
++        assert_eq!(section.action_at(area, 999, (2, 13)), None);
 +    }
 +
 +    #[test]

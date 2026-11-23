@@ -50,28 +50,34 @@ def refresh(*, force=False):
         except BlockingIOError:
             return storage.cached()
         now = time.time()
-        old = {s["provider"]: s for s in storage.cached()["subscriptions"]}
-        providers = config["providers"]
-        def fetch(provider):
-            previous = old.get(provider, {})
-            if not force and now - previous.get("attempted_at", 0) < config["refresh_seconds"]:
+        entries = config["subscriptions"]
+        old = {s["id"]: s for s in storage.cached()["subscriptions"]}
+
+        def fetch(entry):
+            provider = entry["provider"]
+            previous = old.get(entry["id"], {})
+            if previous and not force and now - previous.get("attempted_at", 0) < config["refresh_seconds"]:
                 return previous
             try:
-                value = FETCHERS[provider]()
+                if provider == "codex":
+                    value = FETCHERS[provider](entry["config_dir"], previous=previous)
+                else:
+                    value = FETCHERS[provider](entry["config_dir"])
                 value.update({"fetched_at": time.time(), "attempted_at": time.time()})
-                return value
             except ProviderError as exc:
-                return failed(previous, provider, str(exc), time.time())
+                value = failed(previous, provider, str(exc), time.time())
             except Exception:
-                # Third-party errors may contain account IDs, paths or tokens.
-                return failed(previous, provider, "usage request failed; check CLI/sign-in", time.time())
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            subscriptions = list(executor.map(fetch, providers))
+                value = failed(previous, provider, "usage request failed; check CLI/sign-in", time.time())
+            value.update(id=entry["id"], binding=entry["binding"], subscription_label=entry["label"])
+            return value
+
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            subscriptions = list(executor.map(fetch, entries))
         snapshot = {"schema": 1, "subscriptions": subscriptions}
-        for sub in subscriptions:
+        for entry, sub in zip(entries, subscriptions):
             if sub["provider"] == "claude" and not sub.get("error"):
-                before = exhausted_windows(old.get("claude", {}), now)
-                if exhausted_windows(sub, now) - before:
-                    request_reset_inventory(root, time.time())
+                key = sub["id"]
+                if exhausted_windows(sub, now) - exhausted_windows(old.get(key, {}), now):
+                    request_reset_inventory(storage.subscription_dir(entry), time.time())
         storage.write_json(root / "usage.json", snapshot)
         return storage.cached()

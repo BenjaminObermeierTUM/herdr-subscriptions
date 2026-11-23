@@ -1,4 +1,4 @@
-importScripts("usage.js");
+importScripts("host.js", "usage.js");
 
 const retryAlarm = "reconnect-herdr";
 let port;
@@ -25,16 +25,21 @@ async function inventory(workspace) {
 
 function connect() {
   if (port) return;
-  const connection = chrome.runtime.connectNative("dev.herdr.subscriptions");
+  const connection = chrome.runtime.connectNative(nativeHost);
   port = connection;
   connection.onDisconnect.addListener(() => {
     void chrome.runtime.lastError;
     port = null;
     chrome.alarms.create(retryAlarm, {delayInMinutes: 1});
   });
-  connection.onMessage.addListener(async ({workspace}) => {
+  connection.onMessage.addListener(async ({workspace, action}) => {
     const result = await inventory(workspace).catch(() => ({available: null, reason: "provider request failed"}));
-    if (port === connection) connection.postMessage(result);
+    if (port !== connection) return;
+    if (action === "open") {
+      if (result.usable?.length) await chrome.tabs.create({url: "https://claude.ai/new#settings/usage"});
+    } else {
+      connection.postMessage(result);
+    }
   });
   connection.postMessage({request: "watch"});
 }

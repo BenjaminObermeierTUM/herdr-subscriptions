@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Herdr Claude reset monitor",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Check Claude saved resets daily and when a quota fills, without opening a tab.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5crUgXTdwATAJ1oVGIWG4cODvMk1h4L37Dmhh8Wf0VBBp7VaHfrQ4whoQgaAYVJvFPYA5EnMBfZC4mDtmom+01XdPXyLAthvJjTDQyITOE58z4kLsM6R8XMsJ9LlFXZmjZ3VIzgwVPLi61r7kJklDu48X0gTBVs8sAVddpQp6LgOWCNaGn7wgoPTw2MVA2rcrOyj/d25WQJySseXHDA1GB6Eh06KvH7dKHJ+gasHeOP0RhcxcApikySRK4JlACXurdZflxyDVIufYZ0p1AJ/JohbIvxucARKyTUEPcQ4h7aBo56pGE2ruiznCpC/kUKhkj/m6edJgZ50AMV4l6d+tQIDAQAB",
   "permissions": [

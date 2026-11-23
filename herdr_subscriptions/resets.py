@@ -59,10 +59,10 @@ def attempt_key(root, account, window):
     return key
 
 
-def confirm_codex():
+def confirm_codex(entry=None):
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         raise ValueError("Open the reset confirmation in an interactive terminal")
-    root = storage.private_dir(storage.state_dir())
+    root = storage.private_dir(storage.subscription_dir(entry) if entry else storage.state_dir())
     with (root / "redeem.lock").open("a+") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -70,7 +70,7 @@ def confirm_codex():
             print("A reset confirmation is already open.")
             return
         try:
-            with providers.codex_session() as client:
+            with providers.codex_session(entry["config_dir"] if entry else None) as client:
                 sub = providers.codex_usage(client)
                 sub["fetched_at"] = time.time()
                 account = client.usage_account
@@ -78,7 +78,8 @@ def confirm_codex():
                 if not window:
                     print("No exhausted main Codex limit with an available saved reset.")
                 else:
-                    print(f"Codex {sub['plan'].title()} · {window['label']} at 100% · {sub['resets']['available']} saved resets")
+                    label = entry["label"] if entry and entry["label"] else f"Codex {sub['plan'].title()}"
+                    print(f"{label} · {window['label']} at 100% · {sub['resets']['available']} saved resets")
                     if input("Use one saved reset now? [y/N] ").strip().lower() != "y":
                         return
                     # Recheck in this same signed-in client immediately before redeeming.

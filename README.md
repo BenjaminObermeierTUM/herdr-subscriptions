@@ -1,9 +1,11 @@
 # Herdr Subscriptions
 
 An independent **Subscriptions** section below Spaces and Agents in Herdr.
-Bold provider headings and vertical spacing separate Claude and Codex. Each
-quota shows usage and its next reset. Both subscriptions end with plain, neutral
+Click a heading to select a coding subscription, including a second login for the same provider. Each
+quota shows usage and its next reset. Subscriptions end with plain, neutral
 `Credits <amount>` and `Resets <count>` rows.
+
+For sign-in commands, account configuration and daily use, see [Switch coding subscriptions in Herdr](docs/subscription-switching.md).
 
 ![Synthetic preview](docs/sidebar.svg)
 
@@ -120,7 +122,11 @@ Find the directory with `herdr plugin config-dir subscriptions`. Optional `confi
 
 ```json
 {
-  "providers": ["codex", "claude"],
+  "subscriptions": [
+    {"id": "codex-pro", "provider": "codex", "label": "Codex Pro"},
+    {"id": "claude-team", "provider": "claude", "label": "Claude Team"},
+    {"id": "claude-ultra", "provider": "claude", "label": "Claude Ultra", "config_dir": "~/.claude-secondary", "show_idle_five_hour": false}
+  ],
   "refresh_seconds": 60,
   "reset_refresh_seconds": 86400,
   "stale_seconds": 1800,
@@ -130,8 +136,23 @@ Find the directory with `herdr plugin config-dir subscriptions`. Optional `confi
 
 Use a lower `stale_seconds` to shorten the 30-minute window.
 The launcher sets `section` automatically. The fallback setup sets `agents`.
-This version reads each CLI's default signed-in account; multiple account
-profiles within the same provider are not yet supported.
+Each subscription has a stable ID and a display label. The provider selects the
+CLI. Omit `config_dir` for its default login or set it to a distinct Claude
+configuration directory or Codex home. Older `providers` configurations still
+load. Quotas, last successful readings and reset actions follow the subscription.
+
+Claude starts a five-hour window on first use. For a verified Ultra account
+with weekly limits only, set `show_idle_five_hour` to `false` to hide the empty
+session row the CLI can still return. A reported session reset time or positive
+usage always appears.
+
+### Select a subscription
+
+Click a subscription heading in the local companion sidebar. The first click
+opens a named tab in the current worktree. Later clicks return to that
+subscription's tab in the same workspace and worktree. Each tab keeps its own
+conversation. From the keyboard, press **Ctrl+B, U**, then **s**, and enter the
+number beside the subscription. Both methods use the configured CLI login.
 
 ### Enable Claude reset monitoring
 
@@ -142,7 +163,10 @@ python3 -m herdr_subscriptions browser-setup
 ```
 
 Open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**
-and select the printed `browser` directory. Chrome uses its signed-in session
+and select the directory printed for that subscription. For a second Claude login,
+load its printed directory in a separate Chrome profile signed into that account.
+Reload an existing monitor after upgrading. The reset-offer button sends its
+request to that subscription's connected monitor. Chrome uses its signed-in session
 to request the workspace Usage JSON. The helper opens no tab. Chrome must be
 running for this check. The monitor checks once on first use, then once every
 24 hours by default. Set `reset_refresh_seconds` to any value from 60 to 86400

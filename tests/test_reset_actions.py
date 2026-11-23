@@ -72,7 +72,7 @@ class ResetTests(unittest.TestCase):
             transport.receive.return_value = {"id": 4, "result": {"outcome": "reset"}}
 
             @contextmanager
-            def session():
+            def session(directory):
                 yield transport
 
             with self.subTest(choice=choice, current=current), tempfile.TemporaryDirectory() as tmp, \
@@ -101,7 +101,7 @@ class ScheduleTests(unittest.TestCase):
 
     def test_codex_detail_lookup_on_crossing_and_not_on_next_poll(self):
         @contextmanager
-        def client():
+        def client(directory):
             yield Mock()
         for before, after, expected in ((99, 100, [False, True]), (100, 100, [False]), (40, 40, [False])):
             prior = codex(before)
@@ -112,7 +112,7 @@ class ScheduleTests(unittest.TestCase):
                 return codex(after)
             with patch.object(providers, "codex_session", client), patch.object(providers, "codex_usage", usage), \
                     patch.object(storage, "cached", return_value={"subscriptions": [prior]}), patch("time.time", return_value=100):
-                providers.fetch_codex()
+                providers.fetch_codex(previous=prior)
             self.assertEqual(calls, expected)
 
     def test_daily_and_threshold_deadlines(self):

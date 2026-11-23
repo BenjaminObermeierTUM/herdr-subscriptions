@@ -11,7 +11,7 @@ import termios
 import time
 import tty
 
-from . import collector, daemon, herdr, storage
+from . import browser, collector, daemon, herdr, selection, storage
 from .render import dashboard, sidebar_rows
 from .resets import confirm_codex, eligible_limit
 
@@ -31,6 +31,15 @@ def demo():
                     {"key": "extra", "label": "Extra", "used_percent": 25, "period": "monthly", "enabled": True,
                      "money_used": {"amount": "5", "currency": "EUR"}, "money_limit": {"amount": "20", "currency": "EUR"}}]}
     ]}
+
+
+def choose_subscription(rows):
+    for i, row in enumerate(rows, 1):
+        print(f"{i}. {row.get('subscription_label') or row['id']}")
+    choice = input("Choose subscription (Enter to cancel): ").strip()
+    if choice.isdecimal() and 1 <= int(choice) <= len(rows):
+        return rows[int(choice) - 1]
+    return None
 
 
 def panel(use_demo=False):
@@ -63,17 +72,37 @@ def panel(use_demo=False):
                     break
                 if key in (b"r", b"R") and not use_demo:
                     daemon.request_refresh()
+                if not use_demo and key == b"s":
+                    termios.tcsetattr(fd, termios.TCSADRAIN, previous)
+                    sys.stdout.write("\x1b[?25h\n")
+                    try:
+                        row = choose_subscription(storage.cached()["subscriptions"])
+                        if row:
+                            selection.select_pane(storage.subscription(row["id"]))
+                            break
+                    finally:
+                        tty.setcbreak(fd)
+                        sys.stdout.write("\x1b[?25l")
                 if not use_demo and key in (b"c", b"a"):
                     provider = "codex" if key == b"c" else "claude"
-                    sub = next((s for s in storage.cached()["subscriptions"] if s["provider"] == provider), {})
-                    if eligible_limit(sub, time.time()):
-                        if provider == "claude":
-                            import webbrowser
-                            webbrowser.open("https://claude.ai/new#settings/usage")
-                        else:
-                            termios.tcsetattr(fd, termios.TCSADRAIN, previous)
-                            sys.stdout.write("\x1b[?25h\n")
-                            confirm_codex()
+                    choices = [s for s in storage.cached()["subscriptions"] if s["provider"] == provider
+                               and eligible_limit(s, time.time())]
+                    if choices:
+                        termios.tcsetattr(fd, termios.TCSADRAIN, previous)
+                        sys.stdout.write("\x1b[?25h\n")
+                        try:
+                            sub = choices[0] if len(choices) == 1 else choose_subscription(choices)
+                            if not sub:
+                                continue
+                            entry = storage.subscription(sub["id"], provider=provider)
+                            if provider == "claude":
+                                browser.open_offers(entry)
+                            else:
+                                confirm_codex(entry)
+                        except ValueError as exc:
+                            print(exc)
+                            input("Press Enter to return. ")
+                        finally:
                             tty.setcbreak(fd)
                             sys.stdout.write("\x1b[?25l")
                 if key in (b"j", b"\x1b[B"):
@@ -88,19 +117,32 @@ def panel(use_demo=False):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Subscription quotas and saved resets for Herdr")
-    parser.add_argument("command", choices=["status", "refresh", "start", "stop", "worker", "publish", "request-refresh", "panel", "open", "setup", "unsetup", "diagnostics", "section-path", "browser-setup", "reset-codex"], nargs="?", default="status")
+    parser.add_argument("command", choices=["status", "refresh", "start", "stop", "worker", "publish", "request-refresh", "panel", "open", "setup", "unsetup", "diagnostics", "section-path", "browser-setup", "reset-codex", "select", "open-offers"], nargs="?", default="status")
     parser.add_argument("--json", action="store_true", help="print normalized metadata only")
     parser.add_argument("--demo", action="store_true", help="use synthetic data; never reads accounts")
     parser.add_argument("--sidebar", action="store_true", help="preview compact sidebar rows")
     parser.add_argument("--section", action="store_true", help="use the independent section in the custom Herdr client")
     parser.add_argument("--apply", action="store_true", help="apply the previewed sidebar config, backing it up first")
+    parser.add_argument("--subscription", help="configured subscription ID")
     args = parser.parse_args(argv)
     try:
         if args.command == "browser-setup":
             from .browser import install
             install()
+        elif args.command == "select":
+            sid = selection.selected_id(args.subscription)
+            if sid:
+                selection.select_pane(storage.subscription(sid))
+            else:
+                herdr.open_dashboard()
+        elif args.command == "open-offers":
+            sid = selection.selected_id(args.subscription)
+            if sid:
+                browser.open_offers(storage.subscription(sid, provider="claude"))
+            else:
+                herdr.open_dashboard()
         elif args.command == "reset-codex":
-            confirm_codex()
+            confirm_codex(storage.subscription(args.subscription, provider="codex"))
         elif args.command == "section-path":
             print(storage.state_dir() / "section.json")
         elif args.command in ("status", "refresh"):
@@ -146,7 +188,7 @@ def main(argv=None):
             snapshot = storage.cached()
             print(json.dumps({"state_directory": str(storage.state_dir()), "config_directory": str(storage.config_dir()),
                               "updater_running": daemon.running(), "settings": config,
-                              "providers": [{k: s.get(k) for k in ("provider", "plan", "fetched_at", "attempted_at", "error")} for s in snapshot["subscriptions"]]}, indent=2))
+                              "subscriptions": [{k: s.get(k) for k in ("id", "provider", "subscription_label", "plan", "fetched_at", "attempted_at", "error")} for s in snapshot["subscriptions"]]}, indent=2))
         elif args.command == "open":
             daemon.start()
             herdr.open_dashboard()
