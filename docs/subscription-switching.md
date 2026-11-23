@@ -36,8 +36,7 @@ Run `herdr plugin config-dir subscriptions` to find the directory containing `co
       "id": "claude-ultra",
       "provider": "claude",
       "label": "Claude Ultra",
-      "config_dir": "~/.claude-secondary",
-      "show_idle_five_hour": false
+      "config_dir": "~/.claude-secondary"
     }
   ]
 }
@@ -58,5 +57,5 @@ Detach the old client with **Ctrl+B**, then **Q**. From the outer shell, run `./
 ## Read usage and resets
 
 - **Team five-hour limit.** An idle window shows `Starts on first use`. Once Claude reports a reset timestamp, the sidebar shows the local time and countdown.
-- **Ultra weekly limits.** For a verified Ultra account with weekly limits only, `show_idle_five_hour: false` hides the empty five-hour row the CLI sometimes returns. A reported five-hour reset time or positive session usage still appears.
+- **Ultra weekly limits.** Herdr detects Claude Ultra from the signed-in account and shows its weekly limits even if the CLI also returns a five-hour countdown. You can use any sidebar label for this account.
 - **Saved resets.** To see the `Resets` count, run `python3 -m herdr_subscriptions browser-setup` from the plugin directory. In each account’s signed-in Chrome profile, open `chrome://extensions`, enable **Developer mode**, and use **Load unpacked** to load the directory printed for that account. Reload an existing extension after upgrading. Quota readings and account switching work independently of the Chrome monitor.

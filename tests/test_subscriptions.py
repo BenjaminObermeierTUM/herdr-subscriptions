@@ -65,6 +65,19 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(len(result["limits"]), 4)
         self.assertFalse(result["limits"][-1]["enabled"])
 
+    def test_ultra_omits_session_for_both_quota_formats(self):
+        reset = "2099-01-01T12:00:00Z"
+        for used in (0, 100):
+            for rate in ({"five_hour": {"utilization": used, "resets_at": reset},
+                          "seven_day": {"utilization": 12}},
+                         {"limits": [{"kind": "session", "percent": used, "resets_at": reset},
+                                     {"kind": "weekly_all", "percent": 12}]}):
+                for account, expected in (("Claude Ultra", ["Weekly"]), ("Claude Max", ["5h", "Weekly"]),
+                                          (None, ["5h", "Weekly"])):
+                    with self.subTest(used=used, rate=rate, account=account):
+                        sub = providers.normalize_claude({"subscription_type": "max", "rate_limits": rate}, account)
+                        self.assertEqual([limit["label"] for limit in sub["limits"]], expected)
+
     def test_metadata_protocol_never_submits_a_prompt_or_reset(self):
         calls = []
         replies = [{"id": 1, "result": {}}, {"id": 2, "result": {"rateLimits": {
@@ -84,11 +97,14 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(methods, ["initialize", "initialized", "account/rateLimits/read"])
 
         calls.clear()
-        replies[:] = [{"type": "control_response", "response": {"request_id": "subscriptions-init", "subtype": "success", "response": {}}},
+        replies[:] = [{"type": "control_response", "response": {"request_id": "subscriptions-init", "subtype": "success",
+                       "response": {"account": {"subscriptionType": "Claude Ultra"}}}},
                       {"type": "control_response", "response": {"request_id": "subscriptions-usage", "subtype": "success", "response": {
                           "rate_limits": {"five_hour": {"utilization": 10}}}}}]
         with patch.object(providers, "JsonProcess", FakeProcess), patch.object(providers.shutil, "which", return_value="claude"), patch.object(storage, "claude_resets", return_value=None):
-            providers.fetch_claude()
+            ultra = providers.fetch_claude()
+        self.assertEqual(ultra["plan"], "ultra")
+        self.assertEqual(ultra["limits"], [])
         requests = [c["request"]["subtype"] for c in calls if isinstance(c, dict)]
         self.assertEqual(requests, ["initialize", "get_usage"])
         self.assertIn("--safe-mode", calls[0])
