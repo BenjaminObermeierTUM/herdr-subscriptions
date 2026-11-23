@@ -125,7 +125,7 @@ Find the directory with `herdr plugin config-dir subscriptions`. Optional `confi
   "subscriptions": [
     {"id": "codex-pro", "provider": "codex", "label": "Codex Pro"},
     {"id": "claude-team", "provider": "claude", "label": "Claude Team"},
-    {"id": "claude-ultra", "provider": "claude", "label": "Claude Ultra", "config_dir": "~/.claude-secondary", "show_idle_five_hour": false}
+    {"id": "claude-ultra", "provider": "claude", "label": "Claude Ultra", "config_dir": "~/.claude-secondary"}
   ],
   "refresh_seconds": 60,
   "reset_refresh_seconds": 86400,
@@ -141,10 +141,9 @@ CLI. Omit `config_dir` for its default login or set it to a distinct Claude
 configuration directory or Codex home. Older `providers` configurations still
 load. Quotas, last successful readings and reset actions follow the subscription.
 
-Claude starts a five-hour window on first use. For a verified Ultra account
-with weekly limits only, set `show_idle_five_hour` to `false` to hide the empty
-session row the CLI can still return. A reported session reset time or positive
-usage always appears.
+Herdr detects Claude Ultra from the signed-in account and automatically omits
+its five-hour meter and countdown. For Claude plans with a five-hour limit,
+`show_idle_five_hour: false` hides the meter until the window starts.
 
 ### Select a subscription
 

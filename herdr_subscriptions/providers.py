@@ -190,9 +190,13 @@ def claude_quota(key, label, used, row, window_minutes=None):
     return quota
 
 
-def normalize_claude(response):
+def normalize_claude(response, account_plan=None):
     rate = response.get("rate_limits") or {}
-    result = {"provider": "claude", "label": "Claude", "plan": text(response.get("subscription_type")),
+    plan = text(response.get("subscription_type"))
+    # get_usage can call Ultra "max". initialize identifies the signed-in plan.
+    if any(text(name).strip().casefold() in ("claude ultra", "ultra") for name in (account_plan, plan)):
+        plan = "ultra"
+    result = {"provider": "claude", "label": "Claude", "plan": plan,
               "limits": [], "credits": None, "resets": None}
     rows = rate.get("limits")
     if isinstance(rows, list) and rows:
@@ -241,6 +245,8 @@ def normalize_claude(response):
         ))
     if not result["limits"]:
         raise ProviderError("usage unavailable; check subscription sign-in")
+    if plan == "ultra":
+        result["limits"] = [limit for limit in result["limits"] if limit.get("window_minutes") != 300]
     return result
 
 
@@ -310,8 +316,10 @@ def fetch_claude(directory=None):
             if reply.get("subtype") != "success":
                 raise ProviderError("Claude usage protocol unavailable; check CLI/sign-in")
             return reply.get("response") or {}
-        request("subscriptions-init", {"subtype": "initialize"})
-        return normalize_claude(request("subscriptions-usage", {"subtype": "get_usage", "skip_behaviors": True}))
+        init = request("subscriptions-init", {"subtype": "initialize"})
+        account = init.get("account") or {}
+        usage = request("subscriptions-usage", {"subtype": "get_usage", "skip_behaviors": True})
+        return normalize_claude(usage, account_plan=account.get("subscriptionType"))
 
 
 FETCHERS = {"codex": fetch_codex, "claude": fetch_claude}
