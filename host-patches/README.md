@@ -7,7 +7,7 @@ https://github.com/herdrdev/herdr/tree/2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01
 `herdr-0.9.5-subscriptions.patch` adds a client-local section below Spaces and
 Agents. The client polls the file named by `HERDR_SUBSCRIPTIONS_FILE` once per
 second. Rendering uses an already-decoded, bounded cache, never filesystem IO.
-The plugin shows the Codex saved-reset count as text. Clicking an eligible Claude reset offer opens the Claude Usage page. The section scrolls independently of the agent list.
+The plugin shows the Codex saved-reset count as text. Clicking a subscription heading invokes its local tab selector. An eligible Claude reset action opens Usage in that subscription’s connected Chrome profile. The section scrolls independently of the agent list.
 A missing setting leaves the original layout unchanged. Small windows preserve
 room for native lists and allow independent wheel scrolling in Subscriptions.
 

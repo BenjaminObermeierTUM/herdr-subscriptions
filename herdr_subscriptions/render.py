@@ -120,6 +120,7 @@ def subscription_rows(subscription, now, *, columns=23, cells=6, stale_seconds=M
     stale = not usage_is_current(subscription, now, stale_seconds)
     plan = text(subscription.get("plan")).title()
     title = subscription.get("label", subscription["provider"].title()) + (f" {plan}" if plan else "")
+    title = subscription.get("subscription_label") or title
     rows = [("? " if stale else "") + title]
     if stale and subscription.get("error"):
         rows.append("? " + text(subscription["error"]))
@@ -143,6 +144,8 @@ def subscription_rows(subscription, now, *, columns=23, cells=6, stale_seconds=M
         pending = reset is not None and reset <= now
         if limit.get("key") == "extra":
             continue
+        if limit.get("idle_session") and not subscription.get("show_idle_five_hour", True):
+            continue
         prefix = "? " if stale or pending or used is None else "! " if used >= 95 else "~ " if used >= 80 else ""
         label = clip(limit.get("label", "Limit"), 7)
         value = "?" if used is None or pending else f"{used:g}%"
@@ -153,6 +156,8 @@ def subscription_rows(subscription, now, *, columns=23, cells=6, stale_seconds=M
             # The dashboard retains the wide meter and reset countdown.
             local = datetime.fromtimestamp(round(reset)).astimezone()
             rows[-1] = f"{prefix}Wk {bar(used, 2)} {value} {local:%d%b%H:%M}"
+        elif limit.get("idle_session") and not stale and not subscription.get("error"):
+            rows.append("  Starts on first use")
         elif index not in shared:
             rows.append(reset_line(reset, now))
         elif not any(i > index and round(limits[i]["resets_at"]) == round(reset) for i in shared):
@@ -178,6 +183,8 @@ def sidebar_rows(snapshot, now, *, columns=23, row_budget=SIDEBAR_ROWS, stale_se
 
 def dashboard(snapshot, now, *, columns=70, stale_seconds=MAX_USAGE_AGE):
     rows = ["SUBSCRIPTIONS", "% used · bars show consumption · reset times are local", ""]
+    if any(sub.get("id") for sub in snapshot.get("subscriptions", [])):
+        rows.insert(2, "s  Select subscription")
     for subscription in snapshot.get("subscriptions", []):
         rows.extend(subscription_rows(subscription, now, columns=columns, cells=min(20, max(6, columns - 40)), stale_seconds=stale_seconds))
         credits = subscription.get("credits")

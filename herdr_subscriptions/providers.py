@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-from . import __version__
+from . import __version__, storage
 
 
 class ProviderError(Exception):
@@ -58,10 +58,10 @@ def decimal_text(value):
 class JsonProcess:
     """Bounded newline-JSON transport; one deadline covers the entire exchange."""
 
-    def __init__(self, argv, timeout=25):
+    def __init__(self, argv, timeout=25, env=None):
         self.deadline = time.monotonic() + timeout
         self.buffer = b""
-        self.env = dict(os.environ)
+        self.env = dict(os.environ if env is None else env)
         # Metadata subprocesses must not accidentally attach to an agent session.
         self.env.pop("CLAUDECODE", None)
         self.proc = subprocess.Popen(
@@ -183,6 +183,13 @@ def money(value):
             "currency": text(value.get("currency"), 8)}
 
 
+def claude_quota(key, label, used, row, window_minutes=None):
+    quota = metric(key, label, used, row.get("resets_at"), window_minutes=window_minutes)
+    if window_minutes == 300 and quota["used_percent"] == 0 and "resets_at" in row and row["resets_at"] is None:
+        quota["idle_session"] = True
+    return quota
+
+
 def normalize_claude(response):
     rate = response.get("rate_limits") or {}
     result = {"provider": "claude", "label": "Claude", "plan": text(response.get("subscription_type")),
@@ -198,8 +205,8 @@ def normalize_claude(response):
             label = {"session": "5h", "weekly_all": "Weekly"}.get(kind)
             if not label:
                 label = text(model or surface or kind).replace("weekly_", "")
-            result["limits"].append(metric(
-                f"claude.{kind}.{index}", label, row.get("percent"), row.get("resets_at"),
+            result["limits"].append(claude_quota(
+                f"claude.{kind}.{index}", label, row.get("percent"), row,
                 window_minutes=300 if kind == "session" else 10080 if kind.startswith("weekly") else None,
             ))
     else:
@@ -207,7 +214,8 @@ def normalize_claude(response):
             if not isinstance(value, dict) or "utilization" not in value or key == "extra_usage":
                 continue
             label = {"five_hour": "5h", "seven_day": "Weekly"}.get(key, key.replace("seven_day_", "").replace("_", " ").title())
-            result["limits"].append(metric(key, label, value.get("utilization"), value.get("resets_at")))
+            result["limits"].append(claude_quota(key, label, value.get("utilization"), value,
+                                                 window_minutes=300 if key == "five_hour" else None))
         for index, row in enumerate(rate.get("model_scoped") or []):
             label = text(row.get("display_name"))
             if label not in {m["label"] for m in result["limits"]}:
@@ -237,11 +245,11 @@ def normalize_claude(response):
 
 
 @contextmanager
-def codex_session():
+def codex_session(directory=None):
     binary = shutil.which("codex")
     if not binary:
         raise ProviderError("Codex CLI not installed")
-    with JsonProcess([binary, "app-server", "--listen", "stdio://"]) as client:
+    with JsonProcess([binary, "app-server", "--listen", "stdio://"], env=storage.login_env("codex", directory)) as client:
         client.send({"id": 1, "method": "initialize", "params": {
             "clientInfo": {"name": "herdr_subscriptions", "version": __version__}}})
         if client.receive(lambda o: o.get("id") == 1).get("error"):
@@ -267,15 +275,14 @@ def codex_usage(client, request_id=2, *, details=True):
     return result
 
 
-def fetch_codex():
-    from . import storage
+def fetch_codex(directory=None, *, previous=None):
     from .collector import exhausted_windows
-    previous = next((s for s in storage.cached()["subscriptions"] if s["provider"] == "codex"), {})
+    previous = previous or {}
     prior = previous.get("resets") or {}
     checked = prior.get("details_at", 0)
     now = time.time()
     details = not 0 <= now - checked < storage.settings()["reset_refresh_seconds"] or not checked
-    with codex_session() as client:
+    with codex_session(directory) as client:
         sub = codex_usage(client, details=details)
         if not details and exhausted_windows(sub, now) - exhausted_windows(previous, now):
             sub = codex_usage(client, request_id=3)
@@ -288,14 +295,14 @@ def fetch_codex():
         return sub
 
 
-def fetch_claude():
+def fetch_claude(directory=None):
     binary = shutil.which("claude")
     if not binary:
         raise ProviderError("Claude CLI not installed")
     argv = [binary, "--safe-mode", "--setting-sources", "", "--strict-mcp-config",
             "--mcp-config", '{"mcpServers":{}}', "--tools", "", "--no-session-persistence",
             "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"]
-    with JsonProcess(argv) as client:
+    with JsonProcess(argv, env=storage.login_env("claude", directory)) as client:
         def request(request_id, body):
             client.send({"type": "control_request", "request_id": request_id, "request": body})
             reply = client.receive(lambda o: o.get("type") == "control_response"
